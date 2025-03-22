@@ -51,7 +51,7 @@ class Chat(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Label(f"┌───┐\n│ {self.username[:1]} │\n└───┘")
+            yield Label(f"┌───┐\n│ {self.username[:1]:1} │\n└───┘")
             with Vertical():
                 yield Label(self.username, id="name")
                 yield Label(self.msg, id="last_msg")
@@ -128,7 +128,10 @@ class Dialog(Widget):
                     msg.message = str(messages[i].message)
                 
                 #TODO: завести это:
-                is_me = messages[i].from_id.user_id == self.me.id
+                try:
+                    is_me = messages[i].from_id.user_id == self.me.id
+                except:
+                    is_me = False
                 
                 msg.is_me = is_me
                 msg.username = utils.get_display_name(messages[i].sender)

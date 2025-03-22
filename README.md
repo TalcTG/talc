@@ -1,1 +1,3 @@
-# Telegram-TUI
+# Тальк
+
+Тальк — клиент Telegram с текстовым пользовательским интерфейсом, написанный на Python, Telethon и Textual.

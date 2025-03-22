@@ -11,7 +11,7 @@ class TelegramTUI(App):
     CSS_PATH = "style.tcss"
 
     async def on_mount(self) -> None:
-        self.telegram_client = TelegramClient("user2", api_id, api_hash)
+        self.telegram_client = TelegramClient("user", api_id, api_hash)
         await self.telegram_client.connect()
 
         chat_screen = ChatScreen(telegram_client=self.telegram_client)

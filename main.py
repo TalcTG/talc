@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """Файл инициализации приложения"""
 
 from src.app import TelegramTUI
