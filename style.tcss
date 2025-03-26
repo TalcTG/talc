@@ -1,0 +1,119 @@
+/* Основные стили */
+Screen {
+    background: $surface;
+    color: $text;
+}
+
+/* Стили для подсказки */
+.help-text {
+    color: $text-muted;
+    text-align: center;
+    padding: 1;
+    background: $surface;
+    border: solid $accent;
+    margin: 1;
+}
+
+/* Стили для чатов */
+.chat-item {
+    padding: 1 2;
+    height: auto;
+    min-height: 3;
+    border: solid $accent;
+    margin: 1 0;
+    transition: background 500ms;
+}
+
+.chat-item:hover {
+    background: $accent 20%;
+}
+
+.chat-item.selected {
+    background: $accent 30%;
+    border: solid $accent;
+}
+
+.chat-item.focused {
+    background: $accent 40%;
+    border: solid $accent;
+    outline: solid $accent;
+}
+
+.chat-item.selected.focused {
+    background: $accent 50%;
+}
+
+#chat_container {
+    height: 100%;
+    border: solid $accent;
+    background: $surface;
+}
+
+/* Стили для диалога */
+#dialog {
+    height: 100%;
+    border: solid $accent;
+    background: $surface;
+}
+
+#input_place {
+    height: auto;
+    padding: 1;
+    background: $surface;
+    border: solid $accent;
+}
+
+/* Стили для сообщений */
+.message {
+    margin: 1 0;
+    padding: 1;
+    border: solid $accent;
+}
+
+.message.is_me_true {
+    background: $accent 20%;
+    margin-left: 20%;
+}
+
+.message.is_me_false {
+    background: $surface;
+    margin-right: 20%;
+}
+
+/* Стили для ASCII-арта */
+.ascii-art {
+    font-family: monospace;
+    white-space: pre;
+    margin: 1 0;
+    padding: 1;
+    background: $surface;
+    border: solid $accent;
+}
+
+/* Стили для поиска */
+#search_input {
+    margin: 1;
+    border: solid $accent;
+}
+
+/* Стили для кнопок */
+Button {
+    margin: 1;
+    min-width: 10;
+}
+
+Button#load_more {
+    width: 100%;
+    margin: 0;
+    border: none;
+    background: $accent 20%;
+}
+
+Button#load_more:hover {
+    background: $accent 30%;
+}
+
+Button#load_more:disabled {
+    background: $accent 10%;
+    color: $text-muted;
+} 

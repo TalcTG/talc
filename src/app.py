@@ -1,10 +1,16 @@
 """Главный файл приложения"""
 
 import os
+import sys
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from textual.app import App
+from rich.console import Console
 from src.screens import AuthScreen, ChatScreen
+
+# Настройка консоли для корректной работы с Unicode
+console = Console(force_terminal=True, color_system="auto")
+sys.stdout = console
 
 load_dotenv()
 
@@ -23,6 +29,11 @@ class TelegramTUI(App):
     """Класс приложения"""
 
     CSS_PATH = "style.tcss"
+    TITLE = "Telegram TUI"
+
+    def __init__(self):
+        super().__init__()
+        self.console = console
 
     async def on_mount(self) -> None:
         self.telegram_client = TelegramClient("user", api_id, api_hash)
