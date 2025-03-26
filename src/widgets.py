@@ -5,6 +5,7 @@ from textual.widget import Widget
 from textual.reactive import Reactive
 from textual.widgets import Input, Button, Label, Static, ContentSwitcher
 from textual.app import ComposeResult, RenderResult
+from textual.keys import Keys
 from telethon import TelegramClient, events, utils
 import datetime
 import unicodedata
@@ -73,14 +74,47 @@ def convert_image_to_ascii(image_path: str, width: int = 50) -> str:
         log(f"Ошибка конвертации изображения: {e}")
         return "Ошибка загрузки изображения"
 
-class Chat(Widget):
+class Chat(Static):
     """Класс виджета чата для панели чатов"""
 
-    username: Reactive[str] = Reactive(" ", recompose=True)
-    msg: Reactive[str] = Reactive(" ", recompose=True)
-    peer_id: Reactive[int] = Reactive(0)
-    is_selected: Reactive[bool] = Reactive(False)
-    is_focused: Reactive[bool] = Reactive(False)
+    DEFAULT_CSS = """
+    Chat {
+        width: 100%;
+        height: auto;
+        min-height: 3;
+        padding: 1 2;
+        border: solid $accent;
+        margin: 1 0;
+        background: $surface;
+    }
+    Chat:hover {
+        background: $accent 20%;
+    }
+    Chat.-selected {
+        background: $accent 30%;
+    }
+    Chat:focus {
+        background: $accent 40%;
+        border: double $accent;
+    }
+    .chat-avatar {
+        width: 3;
+        height: 3;
+        content-align: center middle;
+        border: solid $accent;
+    }
+    .chat-content {
+        width: 100%;
+        margin-left: 1;
+    }
+    .chat-name {
+        color: $text;
+        text-style: bold;
+    }
+    .chat-message {
+        color: $text-muted;
+    }
+    """
 
     def __init__(
             self, 
@@ -89,25 +123,64 @@ class Chat(Widget):
             classes: str | None = None, 
             disabled: bool = False
     ) -> None:
-        super().__init__(
-            name=str(name), 
-            id=id, 
-            classes=classes, 
-            disabled=disabled
-        )
-        
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
+        self.can_focus = True
+        self._username = ""
+        self._msg = ""
+        self._peer_id = 0
+        self._is_selected = False
+
     def on_mount(self) -> None:
-        self.switcher = self.screen.query_one(Horizontal).query_one("#dialog_switcher", ContentSwitcher)
-    
-    def on_click(self) -> None:
+        self.switcher = self.screen.query_one("#dialog_switcher", ContentSwitcher)
+
+    @property
+    def username(self) -> str:
+        return self._username
+
+    @username.setter
+    def username(self, value: str) -> None:
+        self._username = value
+        self.refresh()
+
+    @property
+    def msg(self) -> str:
+        return self._msg
+
+    @msg.setter
+    def msg(self, value: str) -> None:
+        self._msg = value
+        self.refresh()
+
+    @property
+    def peer_id(self) -> int:
+        return self._peer_id
+
+    @peer_id.setter
+    def peer_id(self, value: int) -> None:
+        self._peer_id = value
+
+    @property
+    def is_selected(self) -> bool:
+        return self._is_selected
+
+    @is_selected.setter
+    def is_selected(self, value: bool) -> None:
+        self._is_selected = value
+        self.set_class(value, "-selected")
+
+    def on_focus(self) -> None:
         # Снимаем выделение со всех чатов
         for chat in self.screen.query(Chat):
             chat.is_selected = False
-            chat.is_focused = False
         
         # Выделяем текущий чат
         self.is_selected = True
-        self.is_focused = True
+        
+        # Прокручиваем к этому чату
+        self.screen.chat_container.scroll_to(self, animate=False)
+
+    def on_click(self) -> None:
+        self.focus()
         
         dialog_id = f"dialog-{str(self.peer_id)}"
         try:
@@ -116,24 +189,41 @@ class Chat(Widget):
                 chat_id=self.peer_id, 
                 id=dialog_id
             ))
-        except:
-            pass
+        except Exception as e:
+            log(f"Ошибка открытия диалога: {e}")
+            return
+            
         self.switcher.current = dialog_id
-        self.switcher.recompose()
+
+    def on_key(self, event: Keys) -> None:
+        if event.key == "enter":
+            self.on_click()
+        elif event.key == "up" and self.id != "chat-1":
+            # Фокусируемся на предыдущем чате
+            prev_chat = self.screen.chat_container.query_one(f"#chat-{int(self.id.split('-')[1]) - 1}")
+            if prev_chat:
+                prev_chat.focus()
+        elif event.key == "down":
+            # Фокусируемся на следующем чате
+            next_chat = self.screen.chat_container.query_one(f"#chat-{int(self.id.split('-')[1]) + 1}")
+            if next_chat:
+                next_chat.focus()
 
     def compose(self) -> ComposeResult:
-        with Horizontal(classes="chat-item"):
-            # Используем ASCII-символы для рамки
-            yield Label(f"+---+\n| {safe_ascii(self.username[:1].upper()):1} |\n+---+")
-            with Vertical():
-                yield Label(normalize_text(self.username), id="name")
-                yield Label(normalize_text(self.msg), id="last_msg")
-
-    def on_mouse_enter(self) -> None:
-        self.add_class("hover")
-
-    def on_mouse_leave(self) -> None:
-        self.remove_class("hover")
+        """Компонуем виджет чата"""
+        with Horizontal():
+            # Аватар (первая буква имени)
+            first_letter = normalize_text(self._username[:1].upper()) or "?"
+            yield Static(first_letter, classes="chat-avatar")
+            
+            # Контент (имя и сообщение)
+            with Vertical(classes="chat-content"):
+                name = normalize_text(self._username) or "Без названия"
+                msg = normalize_text(self._msg) or "Нет сообщений"
+                msg = msg[:50] + "..." if len(msg) > 50 else msg
+                
+                yield Static(name, classes="chat-name")
+                yield Static(msg, classes="chat-message")
 
 class Dialog(Widget):
     """Класс окна диалога"""
