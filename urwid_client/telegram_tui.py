@@ -19,6 +19,8 @@ from PIL import Image
 import io
 import hashlib
 import json
+import shutil
+from pathlib import Path
 
 # Разрешаем вложенные event loops
 nest_asyncio.apply()
@@ -159,6 +161,123 @@ class AsciiArtCache:
         self.save_index()
         
         return ascii_art
+
+class MediaCache:
+    """Класс для кэширования медиафайлов"""
+    def __init__(self, cache_dir='cache', max_size_mb=1000):
+        self.cache_dir = Path(cache_dir)
+        self.files_dir = self.cache_dir / 'files'
+        self.index_file = self.cache_dir / 'index.json'
+        self.max_size = max_size_mb * 1024 * 1024  # Конвертируем в байты
+        self.current_size = 0
+        
+        # Создаем директории
+        self.files_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Загружаем индекс
+        self.load_index()
+    
+    def load_index(self):
+        """Загружает индекс кэшированных файлов"""
+        try:
+            with open(self.index_file, 'r') as f:
+                self.index = json.load(f)
+            # Подсчитываем текущий размер кэша
+            self.current_size = sum(item['size'] for item in self.index.values())
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.index = {}
+            self.current_size = 0
+            self.save_index()
+    
+    def save_index(self):
+        """Сохраняет индекс кэшированных файлов"""
+        with open(self.index_file, 'w') as f:
+            json.dump(self.index, f)
+    
+    def get_cache_key(self, data):
+        """Генерирует ключ кэша"""
+        return hashlib.md5(data).hexdigest()
+    
+    def cleanup(self, needed_space=0):
+        """Очищает старые файлы для освобождения места"""
+        if self.current_size + needed_space <= self.max_size:
+            return True
+        
+        # Сортируем файлы по времени последнего доступа
+        files = [(k, v) for k, v in self.index.items()]
+        files.sort(key=lambda x: x[1]['last_access'])
+        
+        # Удаляем старые файлы, пока не освободится достаточно места
+        for key, info in files:
+            file_path = self.files_dir / f"{key}{info['ext']}"
+            try:
+                file_path.unlink()
+                self.current_size -= info['size']
+                del self.index[key]
+                if self.current_size + needed_space <= self.max_size:
+                    self.save_index()
+                    return True
+            except Exception as e:
+                print(f"Ошибка при удалении файла {file_path}: {e}")
+        
+        return False
+    
+    def get_cached_file(self, file_data, file_type):
+        """Получает файл из кэша или сохраняет новый"""
+        cache_key = self.get_cache_key(file_data)
+        
+        # Проверяем наличие в кэше
+        if cache_key in self.index:
+            info = self.index[cache_key]
+            file_path = self.files_dir / f"{cache_key}{info['ext']}"
+            if file_path.exists():
+                # Обновляем время последнего доступа
+                info['last_access'] = datetime.datetime.now().isoformat()
+                self.save_index()
+                return file_path
+        
+        # Определяем расширение файла
+        ext = self.get_extension_for_type(file_type)
+        
+        # Проверяем и освобождаем место если нужно
+        if not self.cleanup(len(file_data)):
+            print("Недостаточно места в кэше")
+            return None
+        
+        # Сохраняем файл
+        file_path = self.files_dir / f"{cache_key}{ext}"
+        try:
+            with open(file_path, 'wb') as f:
+                f.write(file_data)
+            
+            # Обновляем индекс
+            self.index[cache_key] = {
+                'type': file_type,
+                'ext': ext,
+                'size': len(file_data),
+                'created_at': datetime.datetime.now().isoformat(),
+                'last_access': datetime.datetime.now().isoformat()
+            }
+            self.current_size += len(file_data)
+            self.save_index()
+            
+            return file_path
+        except Exception as e:
+            print(f"Ошибка сохранения файла: {e}")
+            return None
+    
+    def get_extension_for_type(self, file_type):
+        """Возвращает расширение файла для типа медиа"""
+        extensions = {
+            'photo': '.jpg',
+            'video': '.mp4',
+            'audio': '.ogg',
+            'voice': '.ogg',
+            'document': '',  # Будет использовано оригинальное расширение
+            'sticker': '.webp',
+            'gif': '.gif'
+        }
+        return extensions.get(file_type, '')
 
 class ChatWidget(urwid.WidgetWrap):
     """Виджет чата"""
@@ -318,19 +437,143 @@ class MessageWidget(urwid.WidgetWrap):
         return key
 
 class SearchEdit(urwid.Edit):
+    """Виджет поиска с отложенным обновлением"""
     def __init__(self, *args, **kwargs):
         self.search_callback = kwargs.pop('search_callback', None)
+        self.search_delay = 0.5  # Задержка поиска в секундах
+        self.last_search = 0
+        self.pending_search = None
         super().__init__(*args, **kwargs)
     
     def keypress(self, size, key):
-        if key in ('up', 'down', 'esc', 'enter'):
+        if key in ('up', 'down', 'esc', 'enter', 'tab'):
             return key
         
         result = super().keypress(size, key)
-        # Вызываем поиск при каждом изменении текста
+        
+        # Отменяем предыдущий отложенный поиск
+        if self.pending_search:
+            self.pending_search.cancel()
+        
+        # Создаем новый отложенный поиск
         if self.search_callback and result is None:
-            asyncio.create_task(self.search_callback())
+            async def delayed_search():
+                try:
+                    await asyncio.sleep(self.search_delay)
+                    await self.search_callback()
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    print(f"Ошибка отложенного поиска: {e}")
+            
+            self.pending_search = asyncio.create_task(delayed_search())
+        
         return result
+
+    async def update_chat_list(self):
+        """Обновляет список чатов"""
+        try:
+            # Сохраняем текущий фокус и ID выбранного чата
+            current_focus = self.chat_list.focus_position if self.chat_walker else 0
+            current_chat_id = self.current_chat_id
+            
+            # Получаем диалоги
+            try:
+                dialogs = await self.telegram_client.get_dialogs(
+                    limit=50,
+                    folder=self.current_folder
+                )
+            except Exception as e:
+                print(f"Ошибка получения диалогов: {e}")
+                dialogs = []
+            
+            # Фильтруем по поисковому запросу
+            search_query = normalize_text(self.search_edit.get_edit_text().lower())
+            if search_query:
+                filtered_dialogs = []
+                for dialog in dialogs:
+                    try:
+                        # Получаем имя
+                        name = ""
+                        if hasattr(dialog.entity, 'title') and dialog.entity.title:
+                            name = dialog.entity.title
+                        elif hasattr(dialog.entity, 'first_name'):
+                            name = dialog.entity.first_name
+                            if hasattr(dialog.entity, 'last_name') and dialog.entity.last_name:
+                                name += f" {dialog.entity.last_name}"
+                        name = normalize_text(name).lower()
+                        
+                        # Получаем последнее сообщение
+                        last_message = ""
+                        if dialog.message and hasattr(dialog.message, 'message'):
+                            last_message = normalize_text(dialog.message.message).lower()
+                        
+                        # Проверяем совпадение
+                        if search_query in name or search_query in last_message:
+                            filtered_dialogs.append(dialog)
+                            
+                            # Ограничиваем количество результатов для производительности
+                            if len(filtered_dialogs) >= 20:
+                                break
+                    except Exception as e:
+                        print(f"Ошибка фильтрации диалога: {e}")
+                
+                dialogs = filtered_dialogs
+            
+            # Очищаем список
+            self.chat_walker[:] = []
+            
+            # Добавляем чаты
+            restored_focus = False
+            for i, dialog in enumerate(dialogs):
+                try:
+                    # Получаем имя чата
+                    name = ""
+                    if hasattr(dialog.entity, 'title') and dialog.entity.title:
+                        name = dialog.entity.title
+                    elif hasattr(dialog.entity, 'first_name'):
+                        name = dialog.entity.first_name
+                        if hasattr(dialog.entity, 'last_name') and dialog.entity.last_name:
+                            name += f" {dialog.entity.last_name}"
+                    else:
+                        name = "Без названия"
+                    
+                    # Получаем последнее сообщение
+                    message = ""
+                    if dialog.message and hasattr(dialog.message, 'message'):
+                        message = dialog.message.message
+                    
+                    # Создаем виджет чата
+                    chat = ChatWidget(
+                        chat_id=dialog.id,
+                        name=name,
+                        message=message,
+                        is_selected=(dialog.id == current_chat_id),
+                        folder=1 if self.current_folder else 0
+                    )
+                    
+                    self.chat_walker.append(chat)
+                    
+                    # Восстанавливаем фокус если это текущий чат
+                    if dialog.id == current_chat_id and not restored_focus:
+                        current_focus = i
+                        restored_focus = True
+                    
+                except Exception as e:
+                    print(f"Ошибка создания виджета чата: {e}")
+            
+            # Восстанавливаем фокус
+            if self.chat_walker:
+                if current_focus >= len(self.chat_walker):
+                    current_focus = len(self.chat_walker) - 1
+                self.chat_list.set_focus(max(0, current_focus))
+                self.selected_chat_index = current_focus
+                self.update_selected_chat()
+            
+        except Exception as e:
+            print(f"Ошибка обновления чатов: {e}")
+            # В случае ошибки очищаем список
+            self.chat_walker[:] = []
 
 class InputEdit(urwid.Edit):
     def keypress(self, size, key):
@@ -478,6 +721,7 @@ class TelegramTUI:
         self.can_send_messages = False
         
         self.ascii_cache = AsciiArtCache()
+        self.media_cache = MediaCache(max_size_mb=1000)  # 1GB по умолчанию
     
     def switch_screen(self, screen_name: str):
         """Переключение между экранами"""
@@ -648,6 +892,48 @@ class TelegramTUI:
         except Exception as e:
             print(f"Ошибка обновления выделения: {e}")
     
+    async def process_media(self, message):
+        """Обрабатывает медиа в сообщении"""
+        try:
+            media_type = None
+            media_data = None
+            
+            if message.photo:
+                media_type = 'photo'
+            elif message.video:
+                media_type = 'video'
+            elif message.audio:
+                media_type = 'audio'
+            elif message.voice:
+                media_type = 'voice'
+            elif message.document:
+                media_type = 'document'
+            elif message.sticker:
+                media_type = 'sticker'
+            elif getattr(message, 'gif', None):
+                media_type = 'gif'
+            
+            if media_type:
+                # Загружаем медиа
+                media_data = await self.telegram_client.download_media(message.media, bytes)
+                if media_data:
+                    # Сохраняем в кэш
+                    cached_path = self.media_cache.get_cached_file(media_data, media_type)
+                    if cached_path:
+                        if media_type == 'photo':
+                            # Для фото создаем ASCII-арт
+                            with open(cached_path, 'rb') as f:
+                                return self.ascii_cache.get_cached_art(f.read())
+                        else:
+                            # Для других типов возвращаем описание
+                            size_mb = len(media_data) / (1024 * 1024)
+                            return f"[{media_type.upper()}: {size_mb:.1f}MB - {cached_path.name}]"
+            
+            return None
+        except Exception as e:
+            print(f"Ошибка обработки медиа: {e}")
+            return f"[Ошибка обработки {media_type if media_type else 'медиа'}]"
+
     async def update_message_list(self, chat_id):
         """Обновляет список сообщений"""
         try:
@@ -697,16 +983,13 @@ class TelegramTUI:
                     text = msg.message if hasattr(msg, 'message') else ""
                     media_data = None
                     
-                    if hasattr(msg, 'photo') and msg.photo:
-                        try:
-                            photo_data = await self.telegram_client.download_media(msg.photo, bytes)
-                            if photo_data:
-                                media_data = self.ascii_cache.get_cached_art(photo_data)
-                                if not text:
-                                    text = "[Фото]"
-                        except Exception as e:
-                            print(f"Ошибка загрузки фото: {e}")
-                            text = "[Ошибка загрузки фото]"
+                    # Обрабатываем все типы медиа
+                    media_data = await self.process_media(msg)
+                    if media_data:
+                        if not text:
+                            text = media_data
+                        else:
+                            text = media_data + "\n" + text
                     
                     username = ""
                     if hasattr(msg, 'sender') and msg.sender:
@@ -762,12 +1045,12 @@ class TelegramTUI:
                 widget = self.pending_messages[message.id]
                 # Определяем статус
                 if getattr(message, 'from_id', None):
-                    widget.status = "✓✓"  # Доставлено
+                    widget.status = "vv"  # Доставлено
                 else:
-                    widget.status = "✓"  # Отправлено
+                    widget.status = "v"  # Отправлено
                 widget.update_widget()
                 # Если сообщение доставлено, удаляем из отслеживания
-                if widget.status == "✓✓":
+                if widget.status == "vv":
                     del self.pending_messages[message.id]
         except Exception as e:
             print(f"Ошибка обновления статуса: {e}")
