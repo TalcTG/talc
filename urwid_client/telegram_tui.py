@@ -587,13 +587,53 @@ class InputEdit(urwid.Edit):
         
         return result
 
+class ClockWidget(urwid.Text):
+    """Виджет часов"""
+    def __init__(self):
+        super().__init__("")
+        self.update_time()
+    
+    def update_time(self):
+        """Обновляет отображаемое время"""
+        now = datetime.datetime.now()
+        date_str = now.strftime("%d.%m.%Y")
+        time_str = now.strftime("%H:%M:%S")
+        self.set_text(f"{date_str} {time_str}")
+        return True
+
+class WallpaperWidget(urwid.WidgetWrap):
+    """Виджет для отображения ASCII-обоев"""
+    def __init__(self, content=""):
+        self.content = content
+        self.widget = self.create_widget()
+        super().__init__(self.widget)
+    
+    def create_widget(self):
+        """Создает виджет с обоями"""
+        # Создаем виджет с обоями, используя Fill для заполнения всего пространства
+        return urwid.AttrMap(
+            urwid.Filler(
+                urwid.Text(self.content),
+                'top'
+            ),
+            'wallpaper'
+        )
+    
+    def set_content(self, content):
+        """Обновляет содержимое обоев"""
+        self.content = content
+        self._w = self.create_widget()
+    
+    def selectable(self):
+        return False
+
 class TelegramTUI:
     """Основной класс приложения"""
     
     palette = [
         ('header', 'white', 'dark blue', 'bold'),
         ('footer', 'white', 'dark blue', 'bold'),
-        ('bg', 'white', 'black'),
+        ('bg', 'black', 'black'),
         ('selected', 'black', 'light gray'),
         ('chat', 'white', 'black'),
         ('chat_selected', 'black', 'light gray'),
@@ -607,6 +647,8 @@ class TelegramTUI:
         ('input_disabled', 'dark gray', 'black'),
         ('completion_normal', 'white', 'black'),
         ('completion_focus', 'black', 'light gray'),
+        ('wallpaper', 'dark gray', 'black'),  # Цвет для обоев
+        ('main_content', 'white', 'black'),  # Цвет для основного контента
     ]
 
     def __init__(self, telegram_client: TelegramClient):
@@ -634,19 +676,20 @@ class TelegramTUI:
         self.message_list = urwid.ListBox(self.message_walker)
         self.input_edit = InputEdit(('header', "Сообщение: "), telegram_client=telegram_client)
         
+        # Создаем виджет часов
+        self.clock = ClockWidget()
+        
         # Создаем экраны
-        self.auth_widget = urwid.Filler(
-            urwid.Pile([
-                urwid.Text(('header', "\nДобро пожаловать в Telegram TUI\n"), align='center'),
-                urwid.Divider(),
-                self.phone_edit,
-                self.code_edit,
-                self.password_edit,
-                urwid.Divider(),
-                self.error_text,
-                urwid.Text(('help', "Нажмите Enter для подтверждения"), align='center')
-            ])
-        )
+        self.auth_widget = urwid.Pile([
+            urwid.Text(('header', "\nДобро пожаловать в Telegram TUI\n"), align='center'),
+            urwid.Divider(),
+            self.phone_edit,
+            self.code_edit,
+            self.password_edit,
+            urwid.Divider(),
+            self.error_text,
+            urwid.Text(('help', "Нажмите Enter для подтверждения"), align='center')
+        ])
         
         # Создаем левую панель (чаты)
         self.left_panel = urwid.LineBox(
@@ -671,17 +714,32 @@ class TelegramTUI:
             ('weight', 70, self.right_panel)
         ])
         
-        # Создаем основной виджет
-        self.main_widget = urwid.Frame(
-            self.auth_widget,
-            header=urwid.AttrMap(
-                urwid.Text(' Telegram TUI', align='center'),
-                'header'
-            ),
+        # Создаем заголовок с часами
+        header = urwid.Columns([
+            ('weight', 80, urwid.Text(' Telegram TUI', align='center')),
+            ('pack', self.clock)
+        ])
+        
+        # Создаем основной контент
+        self.main_content = urwid.Frame(
+            urwid.Filler(self.auth_widget),
+            header=urwid.AttrMap(header, 'header'),
             footer=urwid.AttrMap(
                 urwid.Text(' Q: Выход | Tab: Переключение фокуса | Enter: Выбор/Отправка | Esc: Назад', align='center'),
                 'footer'
             )
+        )
+        
+        # Добавляем виджет обоев
+        self.wallpaper = WallpaperWidget()
+        self.load_wallpaper()
+        
+        # Создаем основной виджет с обоями
+        self.main_widget = urwid.Overlay(
+            urwid.AttrMap(self.main_content, 'main_content'),
+            self.wallpaper,
+            'center', ('relative', 100),
+            'middle', ('relative', 100)
         )
         
         # Состояние чатов
@@ -735,14 +793,40 @@ class TelegramTUI:
         self.completion_listbox = None
         self.completion_overlay = None
         self.completion_focus = False  # Новое состояние для отслеживания фокуса
+        
+        # Добавляем таймер обновления часов
+        self.clock_update_task = None
+    
+    def load_wallpaper(self):
+        """Загружает ASCII-обои"""
+        try:
+            # Получаем имя файла обоев из .env
+            wallpaper_name = os.getenv('WALLPAPER', 'default')
+            wallpaper_path = os.path.join('ascii', f"{wallpaper_name}.txt")
+            
+            # Проверяем существование файла
+            if os.path.exists(wallpaper_path):
+                with open(wallpaper_path, 'r') as f:
+                    content = f.read()
+                # Обновляем виджет обоев
+                self.wallpaper.set_content(content)
+            else:
+                print(f"Файл обоев не найден: {wallpaper_path}")
+                # Используем простой паттерн
+                self.wallpaper.set_content("░" * 80 + "\n" + ("░" + " " * 78 + "░\n") * 23 + "░" * 80)
+            
+        except Exception as e:
+            print(f"Ошибка загрузки обоев: {e}")
+            # В случае ошибки используем простой паттерн
+            self.wallpaper.set_content("░" * 80 + "\n" + ("░" + " " * 78 + "░\n") * 23 + "░" * 80)
     
     def switch_screen(self, screen_name: str):
         """Переключение между экранами"""
         self.current_screen = screen_name
         if screen_name == 'auth':
-            self.main_widget.body = self.auth_widget
-        elif screen_name == 'chats':
-            self.main_widget.body = self.chat_widget
+            self.main_content.body = urwid.Filler(self.auth_widget)
+        else:
+            self.main_content.body = self.chat_widget
     
     async def handle_auth(self, key):
         """Обработка авторизации"""
@@ -751,6 +835,10 @@ class TelegramTUI:
         
         try:
             if self.auth_step == 'phone':
+                # Скрываем поля кода и пароля
+                self.code_edit.set_edit_text("")
+                self.password_edit.set_edit_text("")
+                
                 phone = normalize_text(self.phone_edit.get_edit_text())
                 if phone:
                     self.phone = phone
@@ -1384,6 +1472,8 @@ class TelegramTUI:
             self.chat_update_task.cancel()
         if self.message_update_task:
             self.message_update_task.cancel()
+        if self.clock_update_task:
+            self.clock_update_task.cancel()
             
         async def chat_update_loop():
             while True:
@@ -1399,6 +1489,7 @@ class TelegramTUI:
         
         self.chat_update_task = asyncio.create_task(chat_update_loop())
         self.message_update_task = asyncio.create_task(self.message_update_loop())
+        self.clock_update_task = asyncio.create_task(self.update_clock())
 
     async def stop_auto_updates(self):
         """Останавливает автоматическое обновление"""
@@ -1408,6 +1499,9 @@ class TelegramTUI:
         if self.message_update_task:
             self.message_update_task.cancel()
             self.message_update_task = None
+        if self.clock_update_task:
+            self.clock_update_task.cancel()
+            self.clock_update_task = None
 
     async def run(self):
         """Запуск приложения"""
@@ -1465,23 +1559,29 @@ class TelegramTUI:
         )
         
         # Создаем оверлей
+        if not hasattr(self, 'main_frame'):
+            self.main_frame = self.main_widget
+        
         self.completion_overlay = urwid.Overlay(
             box,
-            self.main_widget,
-            'center', ('relative', 50),
-            'middle', ('relative', 30)
+            self.main_frame,
+            'left', ('relative', 30),
+            'top', ('relative', 20),
+            ('relative', 50),
+            ('relative', 30)
         )
         
-        # Обновляем главный виджет и устанавливаем фокус на список
+        # Обновляем главный виджет
         self.main_widget = self.completion_overlay
         self.completion_focus = True
     
     def hide_completion_overlay(self):
         """Скрывает оверлей с меню автодополнения"""
         if self.completion_overlay:
-            self.main_widget = self.completion_overlay.bottom_w
+            self.main_widget = self.main_frame
             self.completion_overlay = None
             self.completion_listbox = None
+            self.completion_focus = False
     
     def handle_completion_navigation(self, key):
         """Обрабатывает навигацию по меню автодополнения"""
@@ -1499,6 +1599,16 @@ class TelegramTUI:
         if self.completion_listbox:
             return self.completion_listbox.focus_position
         return None
+
+    async def update_clock(self):
+        """Обновляет время в виджете часов"""
+        while True:
+            try:
+                self.clock.update_time()
+                await asyncio.sleep(1)
+            except Exception as e:
+                print(f"Ошибка обновления часов: {e}")
+                await asyncio.sleep(1)
 
 async def main():
     # Загружаем переменные окружения
