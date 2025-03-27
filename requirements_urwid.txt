@@ -1,0 +1,5 @@
+urwid>=2.1.2
+telethon>=1.34.0
+python-dotenv>=1.0.0
+emoji>=2.10.1
+nest_asyncio>=1.6.0 

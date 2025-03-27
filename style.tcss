@@ -15,38 +15,53 @@ Screen {
 }
 
 /* Стили для чатов */
-.chat-item {
-    padding: 1 2;
+Chat {
+    width: 100%;
     height: auto;
     min-height: 3;
+    padding: 1 2;
     border: solid $accent;
     margin: 1 0;
-    transition: background 500ms;
+    background: $surface;
 }
 
-.chat-item:hover {
+Chat:hover {
     background: $accent 20%;
 }
 
-.chat-item.selected {
+Chat.-selected {
     background: $accent 30%;
     border: solid $accent;
 }
 
-.chat-item.focused {
+Chat:focus {
     background: $accent 40%;
-    border: solid $accent;
-    outline: solid $accent;
+    border: double $accent;
 }
 
-.chat-item.selected.focused {
-    background: $accent 50%;
+.chat-avatar {
+    width: 3;
+    height: 3;
+    content-align: center middle;
+    border: solid $accent;
+    margin-right: 1;
+    background: $boost;
 }
 
-#chat_container {
-    height: 100%;
-    border: solid $accent;
-    background: $surface;
+.chat-content {
+    width: 100%;
+    height: auto;
+}
+
+.chat-name {
+    width: 100%;
+    color: $text;
+    text-style: bold;
+}
+
+.chat-message {
+    width: 100%;
+    color: $text-muted;
 }
 
 /* Стили для диалога */
@@ -54,6 +69,7 @@ Screen {
     height: 100%;
     border: solid $accent;
     background: $surface;
+    padding: 1;
 }
 
 #input_place {
@@ -116,4 +132,21 @@ Button#load_more:hover {
 Button#load_more:disabled {
     background: $accent 10%;
     color: $text-muted;
+}
+
+/* Стили для контейнеров */
+#chats {
+    width: 30%;
+    border-right: solid $accent;
+}
+
+#dialog_switcher {
+    width: 70%;
+}
+
+#chat_container {
+    height: 100%;
+    border: solid $accent;
+    background: $surface;
+    padding: 1;
 } 

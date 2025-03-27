@@ -4,3 +4,4 @@ python-dotenv
 emoji
 Pillow
 pywhatkit
+urwid

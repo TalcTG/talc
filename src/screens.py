@@ -229,4 +229,3 @@ class ChatScreen(Screen):
                 yield Input(placeholder=normalize_text("Поиск чатов..."), id="search_input")
                 yield VerticalScroll(id="chat_container")
             yield ContentSwitcher(id="dialog_switcher")
-                #yield Dialog(telegram_client=self.telegram_client)

@@ -27,17 +27,31 @@ def normalize_text(text: str) -> str:
     """Нормализует текст для корректного отображения"""
     if not text:
         return ""
-    # Удаляем эмодзи
-    text = remove_emoji(text)
-    # Удаляем все управляющие символы
-    text = ''.join(char for char in text if unicodedata.category(char)[0] != 'C')
-    # Нормализуем Unicode
-    text = unicodedata.normalize('NFKC', text)
-    # Заменяем специальные символы на их ASCII-эквиваленты
-    text = text.replace('—', '-').replace('–', '-').replace('…', '...')
-    # Удаляем все непечатаемые символы
-    text = ''.join(char for char in text if char.isprintable())
-    return text
+    
+    try:
+        # Преобразуем в строку, если это не строка
+        text = str(text)
+        
+        # Удаляем эмодзи
+        text = remove_emoji(text)
+        
+        # Нормализуем Unicode
+        text = unicodedata.normalize('NFKC', text)
+        
+        # Заменяем специальные символы на их ASCII-эквиваленты
+        text = text.replace('—', '-').replace('–', '-').replace('…', '...')
+        
+        # Удаляем все управляющие символы, кроме новой строки и табуляции
+        text = ''.join(char for char in text if unicodedata.category(char)[0] != 'C' 
+                      or char in ('\n', '\t'))
+        
+        # Удаляем множественные пробелы
+        text = ' '.join(text.split())
+        
+        return text
+    except Exception as e:
+        log(f"Ошибка нормализации текста: {e}")
+        return "Ошибка отображения"
 
 def safe_ascii(text: str) -> str:
     """Преобразует текст в безопасный ASCII-формат"""
@@ -103,16 +117,19 @@ class Chat(Static):
         content-align: center middle;
         border: solid $accent;
         margin-right: 1;
+        background: $boost;
     }
     .chat-content {
         width: 100%;
+        height: auto;
     }
     .chat-name {
+        width: 100%;
         color: $text;
         text-style: bold;
-        margin-bottom: 1;
     }
     .chat-message {
+        width: 100%;
         color: $text-muted;
     }
     """
@@ -222,22 +239,40 @@ class Chat(Static):
 
     def compose(self) -> ComposeResult:
         """Компонуем виджет чата"""
-        with Horizontal():
-            # Аватар (первая буква имени)
-            first_letter = normalize_text(self._username[:1].upper()) or "?"
-            yield Static(first_letter, classes="chat-avatar")
+        try:
+            # Подготавливаем данные
+            name = normalize_text(self._username)
+            if not name:
+                name = "Без названия"
             
-            # Контент (имя и сообщение)
-            with Vertical(classes="chat-content"):
-                name = normalize_text(self._username) or "Без названия"
-                msg = normalize_text(self._msg) or "Нет сообщений"
-                msg = msg[:50] + "..." if len(msg) > 50 else msg
-                
-                # Добавляем метку папки если нужно
-                folder_label = " [Архив]" if self._folder == 1 else ""
-                
-                yield Static(f"{name}{folder_label}", classes="chat-name")
-                yield Static(msg, classes="chat-message")
+            msg = normalize_text(self._msg)
+            if not msg:
+                msg = "Нет сообщений"
+            elif len(msg) > 50:
+                msg = msg[:47] + "..."
+            
+            # Добавляем метку папки если нужно
+            if self._folder == 1:
+                name += " [Архив]"
+            
+            # Получаем первую букву для аватара (используем только видимые символы)
+            first_letter = next((c for c in name if c.isprintable()), "?")
+            
+            # Создаем виджеты
+            with Horizontal():
+                yield Static(first_letter, classes="chat-avatar")
+                with Vertical(classes="chat-content"):
+                    yield Static(name, classes="chat-name")
+                    yield Static(msg, classes="chat-message")
+                    
+        except Exception as e:
+            log(f"Ошибка отображения чата: {e}")
+            # Показываем запасной вариант в случае ошибки
+            with Horizontal():
+                yield Static("?", classes="chat-avatar")
+                with Vertical(classes="chat-content"):
+                    yield Static("Ошибка отображения", classes="chat-name")
+                    yield Static("Попробуйте обновить список", classes="chat-message")
 
 class Dialog(Widget):
     """Класс окна диалога"""
