@@ -12,6 +12,7 @@ venv/
 
 # Environment
 .env
+pics*
 
 # IDE
 .vscode/
