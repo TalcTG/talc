@@ -1,6 +1,6 @@
-textual
 telethon
 python-dotenv
+urwid
+nest_asyncio
 emoji
 Pillow
-pywhatkit
