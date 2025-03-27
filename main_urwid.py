@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Telegram TUI Client
 Консольный клиент Telegram на базе urwid

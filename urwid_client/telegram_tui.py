@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Telegram TUI Client
 Консольный клиент Telegram на базе urwid
@@ -100,16 +101,14 @@ class ChatWidget(urwid.WidgetWrap):
                 ('fixed', 3, avatar),
                 content
             ]),
-            'chat' if not self.is_selected else 'chat_selected'
+            None
         )
     
     def selectable(self):
         return True
     
     def keypress(self, size, key):
-        if key in ('up', 'down'):
-            return key
-        return super().keypress(size, key)
+        return key
 
 class MessageWidget(urwid.WidgetWrap):
     """Виджет сообщения"""
@@ -182,8 +181,10 @@ class TelegramTUI:
         
         # Создаем виджеты чатов
         self.search_edit = urwid.Edit(('header', "Поиск: "))
-        self.chat_list = urwid.ListBox(urwid.SimpleFocusListWalker([]))
-        self.message_list = urwid.ListBox(urwid.SimpleFocusListWalker([]))
+        self.chat_walker = urwid.SimpleFocusListWalker([])
+        self.chat_list = urwid.ListBox(self.chat_walker)
+        self.message_walker = urwid.SimpleFocusListWalker([])
+        self.message_list = urwid.ListBox(self.message_walker)
         self.input_edit = urwid.Edit(('header', "Сообщение: "))
         
         # Создаем экраны
@@ -201,15 +202,19 @@ class TelegramTUI:
         )
         
         self.chat_widget = urwid.Columns([
-            ('weight', 30, urwid.Pile([
-                ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки"), align='center')),
-                ('pack', self.search_edit),
-                self.chat_list
-            ])),
-            ('weight', 70, urwid.Pile([
-                self.message_list,
-                ('pack', self.input_edit)
-            ]))
+            ('weight', 30, urwid.LineBox(
+                urwid.Pile([
+                    ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки"), align='center')),
+                    ('pack', self.search_edit),
+                    self.chat_list
+                ])
+            )),
+            ('weight', 70, urwid.LineBox(
+                urwid.Pile([
+                    self.message_list,
+                    ('pack', self.input_edit)
+                ])
+            ))
         ])
         
         # Создаем основной виджет
@@ -280,13 +285,22 @@ class TelegramTUI:
         try:
             # Получаем папки
             if not self.folders:
-                self.folders = await self.telegram_client.get_dialogs_folders()
+                try:
+                    # Проверяем наличие архива
+                    self.folders = [1] if await self.telegram_client.get_dialogs(limit=1, folder=1) else []
+                except Exception as e:
+                    print(f"Ошибка получения папок: {e}")
+                    self.folders = []
             
             # Получаем диалоги
-            dialogs = await self.telegram_client.get_dialogs(
-                limit=100,
-                folder=self.current_folder
-            )
+            try:
+                dialogs = await self.telegram_client.get_dialogs(
+                    limit=100,
+                    folder=self.current_folder
+                )
+            except Exception as e:
+                print(f"Ошибка получения диалогов: {e}")
+                dialogs = []
             
             # Фильтруем по поисковому запросу
             search_query = normalize_text(self.search_edit.get_edit_text().lower())
@@ -297,21 +311,45 @@ class TelegramTUI:
                 ]
             
             # Очищаем список
-            self.chat_list.body.clear()
+            self.chat_walker[:] = []
             
             # Добавляем чаты
             for i, dialog in enumerate(dialogs):
-                chat = ChatWidget(
-                    chat_id=dialog.id,
-                    name=str(dialog.name),
-                    message=str(dialog.message.message if dialog.message else ""),
-                    is_selected=(i == self.selected_chat_index),
-                    folder=1 if self.current_folder else 0
-                )
-                self.chat_list.body.append(chat)
+                try:
+                    # Получаем имя и сообщение
+                    entity = dialog.entity
+                    
+                    # Определяем имя чата
+                    if hasattr(entity, 'title') and entity.title:
+                        name = entity.title
+                    elif hasattr(entity, 'first_name'):
+                        name = entity.first_name
+                        if hasattr(entity, 'last_name') and entity.last_name:
+                            name += f" {entity.last_name}"
+                    else:
+                        name = "Без названия"
+                    
+                    # Получаем последнее сообщение
+                    if dialog.message:
+                        message = dialog.message.message if hasattr(dialog.message, 'message') else ""
+                    else:
+                        message = ""
+                    
+                    chat = ChatWidget(
+                        chat_id=dialog.id,
+                        name=name,
+                        message=message,
+                        is_selected=(i == self.selected_chat_index),
+                        folder=1 if self.current_folder else 0
+                    )
+                    self.chat_walker.append(chat)
+                except Exception as e:
+                    print(f"Ошибка создания виджета чата: {e}")
+                    print(f"Тип объекта: {type(dialog.entity)}")
+                    print(f"Атрибуты: {dir(dialog.entity)}")
             
             # Обновляем фокус
-            if self.chat_list.body:
+            if self.chat_walker:
                 self.chat_list.set_focus(self.selected_chat_index)
                 self.update_selected_chat()
             
@@ -320,9 +358,12 @@ class TelegramTUI:
     
     def update_selected_chat(self):
         """Обновляет выделение выбранного чата"""
-        for i, chat in enumerate(self.chat_list.body):
-            chat.is_selected = (i == self.selected_chat_index)
-            chat.update_widget()
+        try:
+            for i, chat in enumerate(self.chat_walker):
+                chat.is_selected = (i == self.selected_chat_index)
+                chat.update_widget()
+        except Exception as e:
+            print(f"Ошибка обновления выделения: {e}")
     
     async def update_message_list(self, chat_id):
         """Обновляет список сообщений"""
@@ -337,25 +378,47 @@ class TelegramTUI:
             me = await self.telegram_client.get_me()
             
             # Очищаем список
-            self.message_list.body.clear()
+            self.message_walker[:] = []
             
             # Добавляем сообщения
             for msg in reversed(messages):
                 try:
-                    is_me = msg.from_id.user_id == me.id
-                except:
+                    # Определяем, отправлено ли сообщение нами
                     is_me = False
-                
-                message = MessageWidget(
-                    text=str(msg.message),
-                    username=str(msg.sender.first_name if msg.sender else "Неизвестный"),
-                    is_me=is_me,
-                    send_time=msg.date.strftime("%H:%M")
-                )
-                self.message_list.body.append(message)
+                    if hasattr(msg, 'from_id') and msg.from_id:
+                        if hasattr(msg.from_id, 'user_id'):
+                            is_me = msg.from_id.user_id == me.id
+                    
+                    # Получаем текст сообщения
+                    text = msg.message if hasattr(msg, 'message') else "Медиа"
+                    
+                    # Получаем имя отправителя
+                    username = ""
+                    if hasattr(msg, 'sender') and msg.sender:
+                        if hasattr(msg.sender, 'first_name'):
+                            username = msg.sender.first_name
+                            if hasattr(msg.sender, 'last_name') and msg.sender.last_name:
+                                username += f" {msg.sender.last_name}"
+                        elif hasattr(msg.sender, 'title'):
+                            username = msg.sender.title
+                    
+                    # Если не удалось получить имя, используем Me/Другой
+                    if not username:
+                        username = "Я" if is_me else "Неизвестный"
+                    
+                    message = MessageWidget(
+                        text=text,
+                        username=username,
+                        is_me=is_me,
+                        send_time=msg.date.strftime("%H:%M")
+                    )
+                    self.message_walker.append(message)
+                except Exception as e:
+                    print(f"Ошибка создания виджета сообщения: {e}")
             
             # Прокручиваем к последнему сообщению
-            self.message_list.set_focus(len(self.message_list.body) - 1)
+            if self.message_walker:
+                self.message_list.set_focus(len(self.message_walker) - 1)
             
         except Exception as e:
             print(f"Ошибка обновления сообщений: {e}")
@@ -366,18 +429,21 @@ class TelegramTUI:
             # Переключаем фокус
             if self.focused_element == "chat_list":
                 self.focused_element = "search"
-                self.chat_widget.set_focus_column(0)
-                self.chat_widget.contents[0][0].set_focus(1)  # Фокус на поиск
+                self.chat_widget.focus_position = 0
+                pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
+                pile.focus_position = 1  # Фокус на поиск
             else:
                 self.focused_element = "chat_list"
-                self.chat_widget.set_focus_column(0)
-                self.chat_widget.contents[0][0].set_focus(2)  # Фокус на список чатов
+                self.chat_widget.focus_position = 0
+                pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
+                pile.focus_position = 2  # Фокус на список чатов
         
         elif key == '/':
             # Фокус на поиск
             self.focused_element = "search"
-            self.chat_widget.set_focus_column(0)
-            self.chat_widget.contents[0][0].set_focus(1)
+            self.chat_widget.focus_position = 0
+            pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
+            pile.focus_position = 1
         
         elif key == '[':
             # Переход в предыдущую папку
@@ -395,28 +461,28 @@ class TelegramTUI:
         
         elif key == 'up' and self.focused_element == "chat_list":
             # Выбор предыдущего чата
-            if self.chat_list.body:
+            if self.chat_walker:
                 self.selected_chat_index = max(0, self.selected_chat_index - 1)
                 self.chat_list.set_focus(self.selected_chat_index)
                 self.update_selected_chat()
         
         elif key == 'down' and self.focused_element == "chat_list":
             # Выбор следующего чата
-            if self.chat_list.body:
-                self.selected_chat_index = min(len(self.chat_list.body) - 1, self.selected_chat_index + 1)
+            if self.chat_walker:
+                self.selected_chat_index = min(len(self.chat_walker) - 1, self.selected_chat_index + 1)
                 self.chat_list.set_focus(self.selected_chat_index)
                 self.update_selected_chat()
         
         elif key == 'enter' and self.focused_element == "chat_list":
             # Открываем выбранный чат
-            focused = self.chat_list.get_focus()[0]
-            if focused:
+            if self.chat_walker:
+                focused = self.chat_walker[self.selected_chat_index]
                 await self.update_message_list(focused.chat_id)
-                self.chat_widget.set_focus_column(1)  # Переключаемся на сообщения
+                self.chat_widget.focus_position = 1  # Переключаемся на сообщения
         
         elif key == 'esc':
             # Возвращаемся к списку чатов
-            self.chat_widget.set_focus_column(0)
+            self.chat_widget.focus_position = 0
             self.focused_element = "chat_list"
     
     def unhandled_input(self, key):
@@ -480,14 +546,6 @@ async def main():
     
     # Инициализируем клиент Telegram
     session_file = "talc.session"
-    
-    # Если сессия существует и заблокирована, удаляем её
-    if os.path.exists(session_file):
-        try:
-            os.remove(session_file)
-            print("Старая сессия удалена")
-        except Exception as e:
-            print(f"Ошибка удаления сессии: {e}")
     
     # Создаем клиент
     client = TelegramClient(

@@ -37,6 +37,14 @@ cp .env.example .env
 
 ## Запуск
 
+1. Активируйте виртуальное окружение:
+```bash
+source venv/bin/activate  # Linux/macOS
+# или
+venv\Scripts\activate  # Windows
+```
+
+2. Запустите приложение:
 ```bash
 python main_urwid.py
 ```
