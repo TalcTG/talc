@@ -1,26 +1,26 @@
-# Тальк
+# Telegram TUI Client
 
-Тальк — клиент Telegram с текстовым пользовательским интерфейсом, написанный на Python, Telethon и Textual.
-
-## Требования
-
-- Python 3.12
-- pyenv (рекомендуется для управления версиями Python)
+Консольный клиент Telegram на базе urwid с поддержкой:
+- Просмотра чатов и сообщений
+- Поиска по чатам
+- Навигации с помощью клавиатуры
+- Поддержки папок (Архив)
+- Корректного отображения эмодзи и Unicode
 
 ## Установка
 
-1. Установите Python 3.12 с помощью pyenv:
+1. Клонируйте репозиторий:
 ```bash
-pyenv install 3.12
-pyenv local 3.12
+git clone https://github.com/yourusername/talc.git
+cd talc
 ```
 
-2. Создайте и активируйте виртуальное окружение:
+2. Создайте виртуальное окружение и активируйте его:
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # для Linux/macOS
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
 # или
-.venv\Scripts\activate  # для Windows
+venv\Scripts\activate  # Windows
 ```
 
 3. Установите зависимости:
@@ -28,15 +28,42 @@ source .venv/bin/activate  # для Linux/macOS
 pip install -r requirements.txt
 ```
 
-4. Настройте переменные окружения:
+4. Скопируйте `.env.example` в `.env`:
 ```bash
 cp .env.example .env
-# Отредактируйте .env файл, добавив свои API ключи
-# Получите ключи на https://my.telegram.org/apps
 ```
+
+5. Получите API ключи на https://my.telegram.org/apps и добавьте их в `.env`
 
 ## Запуск
 
 ```bash
-python src/app.py
+python main_urwid.py
 ```
+
+## Управление
+
+- Tab: Переключение фокуса между поиском и списком чатов
+- ↑↓: Выбор чата
+- Enter: Открыть выбранный чат
+- Esc: Вернуться к списку чатов
+- /: Быстрый доступ к поиску
+- []: Переключение между основными чатами и архивом
+- Q: Выход
+
+## Структура проекта
+
+```
+talc/
+├── main_urwid.py          # Основной файл запуска
+├── requirements.txt       # Зависимости проекта
+├── .env.example          # Пример конфигурации
+├── .env                  # Конфигурация (не включена в git)
+└── urwid_client/        # Основной код приложения
+    ├── __init__.py
+    └── telegram_tui.py  # Реализация клиента
+```
+
+## Лицензия
+
+MIT

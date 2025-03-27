@@ -1,10 +1,19 @@
-test.py
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+
+# Telegram session files
 *.session
 *.session-journal
-__pycache__
-*/__pycache__
-tokens.py
+
+# Environment
 .env
-venv*
-venv/
+
+# IDE
+.vscode/
+.idea/
 

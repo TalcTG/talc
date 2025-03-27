@@ -107,7 +107,9 @@ class ChatWidget(urwid.WidgetWrap):
         return True
     
     def keypress(self, size, key):
-        return key
+        if key in ('up', 'down'):
+            return key
+        return super().keypress(size, key)
 
 class MessageWidget(urwid.WidgetWrap):
     """Виджет сообщения"""
@@ -276,10 +278,13 @@ class TelegramTUI:
     async def update_chat_list(self):
         """Обновляет список чатов"""
         try:
+            # Получаем папки
+            if not self.folders:
+                self.folders = await self.telegram_client.get_dialogs_folders()
+            
             # Получаем диалоги
             dialogs = await self.telegram_client.get_dialogs(
                 limit=100,
-                archived=False,
                 folder=self.current_folder
             )
             
@@ -305,8 +310,19 @@ class TelegramTUI:
                 )
                 self.chat_list.body.append(chat)
             
+            # Обновляем фокус
+            if self.chat_list.body:
+                self.chat_list.set_focus(self.selected_chat_index)
+                self.update_selected_chat()
+            
         except Exception as e:
             print(f"Ошибка обновления чатов: {e}")
+    
+    def update_selected_chat(self):
+        """Обновляет выделение выбранного чата"""
+        for i, chat in enumerate(self.chat_list.body):
+            chat.is_selected = (i == self.selected_chat_index)
+            chat.update_widget()
     
     async def update_message_list(self, chat_id):
         """Обновляет список сообщений"""
@@ -376,6 +392,20 @@ class TelegramTUI:
                 self.current_folder = 1  # Архив
                 self.selected_chat_index = 0
                 await self.update_chat_list()
+        
+        elif key == 'up' and self.focused_element == "chat_list":
+            # Выбор предыдущего чата
+            if self.chat_list.body:
+                self.selected_chat_index = max(0, self.selected_chat_index - 1)
+                self.chat_list.set_focus(self.selected_chat_index)
+                self.update_selected_chat()
+        
+        elif key == 'down' and self.focused_element == "chat_list":
+            # Выбор следующего чата
+            if self.chat_list.body:
+                self.selected_chat_index = min(len(self.chat_list.body) - 1, self.selected_chat_index + 1)
+                self.chat_list.set_focus(self.selected_chat_index)
+                self.update_selected_chat()
         
         elif key == 'enter' and self.focused_element == "chat_list":
             # Открываем выбранный чат
