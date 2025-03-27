@@ -201,20 +201,27 @@ class TelegramTUI:
             ])
         )
         
+        # Создаем левую панель (чаты)
+        self.left_panel = urwid.LineBox(
+            urwid.Pile([
+                ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки"), align='center')),
+                ('pack', self.search_edit),
+                self.chat_list
+            ])
+        )
+        
+        # Создаем правую панель (сообщения)
+        self.right_panel = urwid.LineBox(
+            urwid.Pile([
+                self.message_list,
+                ('pack', self.input_edit)
+            ])
+        )
+        
+        # Создаем основной виджет чатов
         self.chat_widget = urwid.Columns([
-            ('weight', 30, urwid.LineBox(
-                urwid.Pile([
-                    ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки"), align='center')),
-                    ('pack', self.search_edit),
-                    self.chat_list
-                ])
-            )),
-            ('weight', 70, urwid.LineBox(
-                urwid.Pile([
-                    self.message_list,
-                    ('pack', self.input_edit)
-                ])
-            ))
+            ('weight', 30, self.left_panel),
+            ('weight', 70, self.right_panel)
         ])
         
         # Создаем основной виджет
@@ -225,7 +232,7 @@ class TelegramTUI:
                 'header'
             ),
             footer=urwid.AttrMap(
-                urwid.Text(' Q: Выход | Tab: Переключение фокуса | Enter: Выбор', align='center'),
+                urwid.Text(' Q: Выход | Tab: Переключение фокуса | Enter: Выбор/Отправка | Esc: Назад', align='center'),
                 'footer'
             )
         )
@@ -235,7 +242,8 @@ class TelegramTUI:
         self.folders = []
         self.chats = []
         self.selected_chat_index = 0
-        self.focused_element = "chat_list"  # chat_list, search
+        self.focused_element = "chat_list"  # chat_list, search, messages, input
+        self.current_chat_id = None
     
     def switch_screen(self, screen_name: str):
         """Переключение между экранами"""
@@ -426,24 +434,29 @@ class TelegramTUI:
     async def handle_chat_input(self, key):
         """Обработка ввода в экране чатов"""
         if key == 'tab':
-            # Переключаем фокус
+            # Переключаем фокус циклически
             if self.focused_element == "chat_list":
                 self.focused_element = "search"
-                self.chat_widget.focus_position = 0
-                pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
-                pile.focus_position = 1  # Фокус на поиск
-            else:
+                self.left_panel.original_widget.focus_position = 1  # Фокус на поиск
+            elif self.focused_element == "search":
+                if self.current_chat_id:
+                    self.focused_element = "input"
+                    self.chat_widget.focus_position = 1  # Правая панель
+                    self.right_panel.original_widget.focus_position = 1  # Фокус на ввод
+                else:
+                    self.focused_element = "chat_list"
+                    self.chat_widget.focus_position = 0  # Левая панель
+                    self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
+            elif self.focused_element == "input":
                 self.focused_element = "chat_list"
-                self.chat_widget.focus_position = 0
-                pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
-                pile.focus_position = 2  # Фокус на список чатов
+                self.chat_widget.focus_position = 0  # Левая панель
+                self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
         
         elif key == '/':
             # Фокус на поиск
             self.focused_element = "search"
             self.chat_widget.focus_position = 0
-            pile = self.chat_widget.widget_list[0].original_widget  # Получаем Pile из LineBox
-            pile.focus_position = 1
+            self.left_panel.original_widget.focus_position = 1
         
         elif key == '[':
             # Переход в предыдущую папку
@@ -473,17 +486,38 @@ class TelegramTUI:
                 self.chat_list.set_focus(self.selected_chat_index)
                 self.update_selected_chat()
         
-        elif key == 'enter' and self.focused_element == "chat_list":
-            # Открываем выбранный чат
-            if self.chat_walker:
+        elif key == 'enter':
+            if self.focused_element == "chat_list" and self.chat_walker:
+                # Открываем выбранный чат
                 focused = self.chat_walker[self.selected_chat_index]
+                self.current_chat_id = focused.chat_id
                 await self.update_message_list(focused.chat_id)
-                self.chat_widget.focus_position = 1  # Переключаемся на сообщения
+                self.focused_element = "input"
+                self.chat_widget.focus_position = 1  # Правая панель
+                self.right_panel.original_widget.focus_position = 1  # Фокус на ввод
+            
+            elif self.focused_element == "input" and self.current_chat_id:
+                # Отправляем сообщение
+                message = self.input_edit.get_edit_text()
+                if message.strip():
+                    try:
+                        await self.telegram_client.send_message(self.current_chat_id, message)
+                        self.input_edit.set_edit_text("")  # Очищаем поле ввода
+                        await self.update_message_list(self.current_chat_id)  # Обновляем список сообщений
+                    except Exception as e:
+                        print(f"Ошибка отправки сообщения: {e}")
         
         elif key == 'esc':
-            # Возвращаемся к списку чатов
-            self.chat_widget.focus_position = 0
-            self.focused_element = "chat_list"
+            if self.focused_element in ("input", "messages"):
+                # Возвращаемся к списку чатов
+                self.focused_element = "chat_list"
+                self.chat_widget.focus_position = 0  # Левая панель
+                self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
+                self.current_chat_id = None  # Сбрасываем текущий чат
+            elif self.focused_element == "search":
+                # Возвращаемся к списку чатов из поиска
+                self.focused_element = "chat_list"
+                self.left_panel.original_widget.focus_position = 2
     
     def unhandled_input(self, key):
         """Обработка необработанных нажатий клавиш"""
