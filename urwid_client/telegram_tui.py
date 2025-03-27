@@ -734,6 +734,7 @@ class TelegramTUI:
         # Добавляем состояние для меню автодополнения
         self.completion_listbox = None
         self.completion_overlay = None
+        self.completion_focus = False  # Новое состояние для отслеживания фокуса
     
     def switch_screen(self, screen_name: str):
         """Переключение между экранами"""
@@ -1334,6 +1335,43 @@ class TelegramTUI:
         if key in ('q', 'Q'):
             raise urwid.ExitMainLoop()
         
+        # Обрабатываем клавиши для меню автодополнения
+        if self.completion_overlay and self.completion_focus:
+            if key == 'tab':
+                # Переключаем фокус между полем ввода и списком
+                self.completion_focus = not self.completion_focus
+                return None
+            elif key in ('up', 'down'):
+                # Обрабатываем навигацию только если фокус на списке
+                if self.completion_focus:
+                    if key == 'up' and self.completion_listbox.focus_position > 0:
+                        self.completion_listbox.focus_position -= 1
+                    elif key == 'down' and self.completion_listbox.focus_position < len(self.completion_listbox.body) - 1:
+                        self.completion_listbox.focus_position += 1
+                return None
+            elif key == 'enter' and self.completion_focus:
+                # Выбираем текущий вариант
+                if self.input_edit and self.input_edit.completion_state:
+                    selected = self.get_selected_completion()
+                    if selected is not None:
+                        start_pos, partial, matches, _ = self.input_edit.completion_state
+                        username, _ = matches[selected]
+                        
+                        # Обновляем текст
+                        text = self.input_edit.get_edit_text()
+                        new_text = text[:start_pos] + "@" + username + " "
+                        if len(text) > start_pos + len(partial) + 1:
+                            new_text += text[start_pos + len(partial) + 1:]
+                        self.input_edit.set_edit_text(new_text)
+                        self.input_edit.set_edit_pos(len(new_text))
+                        
+                        # Скрываем меню
+                        self.hide_completion_overlay()
+                return None
+            elif key == 'esc':
+                self.hide_completion_overlay()
+                return None
+        
         # Создаем задачу для асинхронной обработки
         if self.current_screen == 'auth':
             asyncio.create_task(self.handle_auth(key))
@@ -1434,8 +1472,9 @@ class TelegramTUI:
             'middle', ('relative', 30)
         )
         
-        # Обновляем главный виджет
+        # Обновляем главный виджет и устанавливаем фокус на список
         self.main_widget = self.completion_overlay
+        self.completion_focus = True
     
     def hide_completion_overlay(self):
         """Скрывает оверлей с меню автодополнения"""
