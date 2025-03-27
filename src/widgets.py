@@ -102,14 +102,15 @@ class Chat(Static):
         height: 3;
         content-align: center middle;
         border: solid $accent;
+        margin-right: 1;
     }
     .chat-content {
         width: 100%;
-        margin-left: 1;
     }
     .chat-name {
         color: $text;
         text-style: bold;
+        margin-bottom: 1;
     }
     .chat-message {
         color: $text-muted;
@@ -129,6 +130,7 @@ class Chat(Static):
         self._msg = ""
         self._peer_id = 0
         self._is_selected = False
+        self._folder = 0
 
     def on_mount(self) -> None:
         self.switcher = self.screen.query_one("#dialog_switcher", ContentSwitcher)
@@ -167,6 +169,15 @@ class Chat(Static):
     def is_selected(self, value: bool) -> None:
         self._is_selected = value
         self.set_class(value, "-selected")
+
+    @property
+    def folder(self) -> int:
+        return self._folder
+
+    @folder.setter
+    def folder(self, value: int) -> None:
+        self._folder = value
+        self.refresh()
 
     def on_focus(self) -> None:
         # Снимаем выделение со всех чатов
@@ -222,7 +233,10 @@ class Chat(Static):
                 msg = normalize_text(self._msg) or "Нет сообщений"
                 msg = msg[:50] + "..." if len(msg) > 50 else msg
                 
-                yield Static(name, classes="chat-name")
+                # Добавляем метку папки если нужно
+                folder_label = " [Архив]" if self._folder == 1 else ""
+                
+                yield Static(f"{name}{folder_label}", classes="chat-name")
                 yield Static(msg, classes="chat-message")
 
 class Dialog(Widget):

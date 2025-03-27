@@ -75,7 +75,9 @@ class ChatScreen(Screen):
         self.search_query = ""
         self.selected_chat_index = 0
         self.chats = []
-        self.focused_element = "search"  # search, chat_list, dialog
+        self.focused_element = "search"  # search, chat_list
+        self.current_folder = None  # None - основная папка, число - ID папки
+        self.folders = []  # Список доступных папок
 
     async def on_mount(self):
         self.limit = 100
@@ -88,15 +90,26 @@ class ChatScreen(Screen):
         self.search_input = self.query_one("#search_input")
         self.help_label = self.query_one("#help_label")
 
+        # Получаем список папок
+        try:
+            self.folders = await self.telegram_client.get_dialogs(folder=1)
+            log(f"Найдено папок: {len(self.folders)}")
+        except Exception as e:
+            log(f"Ошибка получения папок: {e}")
+            self.folders = []
+
+        # Загружаем чаты
         log("Первоначальная загрузка виджетов чатов...")
-        self.mount_chats(
-            len(
-                await self.telegram_client.get_dialogs(
-                    limit=self.limit, archived=False
-                )
+        try:
+            dialogs = await self.telegram_client.get_dialogs(
+                limit=self.limit, 
+                archived=False,
+                folder=self.current_folder
             )
-        )
-        log("Первоначальная загрузка виджетов чата завершена")
+            self.mount_chats(len(dialogs))
+            log("Первоначальная загрузка виджетов чата завершена")
+        except Exception as e:
+            log(f"Ошибка загрузки чатов: {e}")
 
         self.is_chat_update_blocked = False
         await self.update_chat_list()
@@ -131,31 +144,38 @@ class ChatScreen(Screen):
         if not self.is_chat_update_blocked:
             self.is_chat_update_blocked = True
 
-            dialogs = await self.telegram_client.get_dialogs(
-                limit=self.limit, archived=False
-            )
-            log("Получены диалоги")
+            try:
+                # Получаем диалоги для текущей папки
+                dialogs = await self.telegram_client.get_dialogs(
+                    limit=self.limit, 
+                    archived=False,
+                    folder=self.current_folder
+                )
+                log(f"Получены диалоги для папки {self.current_folder}")
 
-            # Фильтруем диалоги по поисковому запросу
-            if self.search_query:
-                dialogs = [
-                    d for d in dialogs 
-                    if self.search_query.lower() in normalize_text(d.name).lower()
-                ]
+                # Фильтруем диалоги по поисковому запросу
+                if self.search_query:
+                    dialogs = [
+                        d for d in dialogs 
+                        if self.search_query.lower() in normalize_text(d.name).lower()
+                    ]
 
-            limit = len(dialogs)
-            self.mount_chats(limit)
+                limit = len(dialogs)
+                self.mount_chats(limit)
 
-            for i in range(limit):
-                chat = self.chat_container.query_one(f"#chat-{i + 1}")
-                chat.username = normalize_text(str(dialogs[i].name))
-                chat.msg = normalize_text(str(dialogs[i].message.message))
-                chat.peer_id = dialogs[i].id
-                chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (self.focused_element == "chat_list" and i == self.selected_chat_index)
+                for i in range(limit):
+                    chat = self.chat_container.query_one(f"#chat-{i + 1}")
+                    chat.username = normalize_text(str(dialogs[i].name))
+                    chat.msg = normalize_text(str(dialogs[i].message.message if dialogs[i].message else ""))
+                    chat.peer_id = dialogs[i].id
+                    chat.is_selected = (i == self.selected_chat_index)
+                    chat.folder = 1 if self.current_folder else 0
 
-            self.is_chat_update_blocked = False
-            log("Чаты обновлены")
+            except Exception as e:
+                log(f"Ошибка обновления чатов: {e}")
+            finally:
+                self.is_chat_update_blocked = False
+                log("Чаты обновлены")
         else:
             log("Обновление чатов невозможно: уже выполняется")
 
@@ -167,58 +187,42 @@ class ChatScreen(Screen):
 
     def on_key(self, event: Key) -> None:
         if event.key == "tab":
-            # Переключаем фокус между элементами
+            # Переключаем фокус между поиском и списком чатов
             if self.focused_element == "search":
                 self.focused_element = "chat_list"
                 self.search_input.blur()
-                self.update_chat_list()
+                # Фокусируемся на первом чате
+                first_chat = self.chat_container.query_one("#chat-1")
+                if first_chat:
+                    first_chat.focus()
             elif self.focused_element == "chat_list":
                 self.focused_element = "search"
                 self.search_input.focus()
-                self.update_chat_list()
             return
 
-        if self.focused_element == "search":
-            return
-
-        chats = self.chat_container.query(Chat)
-        if not chats:
-            return
-
-        if event.key == "up":
-            self.selected_chat_index = max(0, self.selected_chat_index - 1)
-            for i, chat in enumerate(chats):
-                chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (i == self.selected_chat_index)
-            # Прокручиваем к выбранному чату
-            selected_chat = chats[self.selected_chat_index]
-            self.chat_container.scroll_to(selected_chat, animate=False)
-        elif event.key == "down":
-            self.selected_chat_index = min(len(chats) - 1, self.selected_chat_index + 1)
-            for i, chat in enumerate(chats):
-                chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (i == self.selected_chat_index)
-            # Прокручиваем к выбранному чату
-            selected_chat = chats[self.selected_chat_index]
-            self.chat_container.scroll_to(selected_chat, animate=False)
-        elif event.key == "enter":
-            chats[self.selected_chat_index].on_click()
-        elif event.key == "escape":
-            # Возвращаемся к списку чатов
-            self.app.pop_screen()
-            self.app.push_screen("chats")
-        elif event.key == "/":
+        if event.key == "/":
             # Фокус на поиск
             self.focused_element = "search"
             self.search_input.focus()
-            self.update_chat_list()
+        elif event.key == "[":
+            # Переход в предыдущую папку
+            if self.current_folder is not None:
+                self.current_folder = None
+                self.selected_chat_index = 0
+                self.update_chat_list()
+        elif event.key == "]":
+            # Переход в следующую папку
+            if self.current_folder is None and self.folders:
+                self.current_folder = 1  # Архив
+                self.selected_chat_index = 0
+                self.update_chat_list()
 
     def compose(self):
         yield Footer()
         with Horizontal(id="main_container"):
             with Vertical(id="chats"):
                 yield Label(
-                    "Навигация: Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть, Esc - назад, / - поиск",
+                    "Навигация: Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки",
                     id="help_label",
                     classes="help-text"
                 )
