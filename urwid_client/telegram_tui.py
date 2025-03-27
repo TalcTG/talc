@@ -58,6 +58,7 @@ class ChatWidget(urwid.WidgetWrap):
         self.message = normalize_text(message)
         self.is_selected = is_selected
         self.folder = folder
+        self.has_focus = False
         
         # Создаем содержимое виджета
         self.update_widget()
@@ -79,20 +80,28 @@ class ChatWidget(urwid.WidgetWrap):
         # Получаем первую букву для аватара
         first_letter = next((c for c in name if c.isprintable()), "?")
         
+        # Определяем стиль
+        if self.has_focus:
+            style = 'selected'
+        elif self.is_selected:
+            style = 'chat_selected'
+        else:
+            style = 'chat'
+        
         # Создаем виджеты
         avatar = urwid.AttrMap(
             urwid.Text(f" {first_letter} ", align='center'),
-            'chat' if not self.is_selected else 'chat_selected'
+            style
         )
         
         content = urwid.Pile([
             urwid.AttrMap(
                 urwid.Text(name),
-                'chat_name' if not self.is_selected else 'chat_selected'
+                style
             ),
             urwid.AttrMap(
                 urwid.Text(msg),
-                'chat_message' if not self.is_selected else 'chat_selected'
+                style
             )
         ])
         
@@ -107,7 +116,19 @@ class ChatWidget(urwid.WidgetWrap):
     def selectable(self):
         return True
     
+    def render(self, size, focus=False):
+        if self.has_focus != focus:
+            self.has_focus = focus
+            self.update_widget()
+        return super().render(size, focus)
+    
     def keypress(self, size, key):
+        if key == 'enter':
+            return key
+        elif key == 'tab':
+            return key
+        elif key in ('up', 'down'):
+            return key
         return key
 
 class MessageWidget(urwid.WidgetWrap):
@@ -147,6 +168,27 @@ class MessageWidget(urwid.WidgetWrap):
     def selectable(self):
         return False
 
+class SearchEdit(urwid.Edit):
+    def __init__(self, *args, **kwargs):
+        self.search_callback = kwargs.pop('search_callback', None)
+        super().__init__(*args, **kwargs)
+    
+    def keypress(self, size, key):
+        if key in ('up', 'down', 'esc', 'enter'):
+            return key
+        
+        result = super().keypress(size, key)
+        # Вызываем поиск при каждом изменении текста
+        if self.search_callback and result is None:
+            asyncio.create_task(self.search_callback())
+        return result
+
+class InputEdit(urwid.Edit):
+    def keypress(self, size, key):
+        if key in ('esc', 'up', 'down'):
+            return key
+        return super().keypress(size, key)
+
 class TelegramTUI:
     """Основной класс приложения"""
     
@@ -180,12 +222,15 @@ class TelegramTUI:
         self.error_text = urwid.Text(('error', ""))
         
         # Создаем виджеты чатов
-        self.search_edit = urwid.Edit(('header', "Поиск: "))
+        self.search_edit = SearchEdit(
+            ('header', "Поиск: "),
+            search_callback=self.update_chat_list
+        )
         self.chat_walker = urwid.SimpleFocusListWalker([])
         self.chat_list = urwid.ListBox(self.chat_walker)
         self.message_walker = urwid.SimpleFocusListWalker([])
         self.message_list = urwid.ListBox(self.message_walker)
-        self.input_edit = urwid.Edit(('header', "Сообщение: "))
+        self.input_edit = InputEdit(('header', "Сообщение: "))
         
         # Создаем экраны
         self.auth_widget = urwid.Filler(
@@ -204,9 +249,9 @@ class TelegramTUI:
         # Создаем левую панель (чаты)
         self.left_panel = urwid.LineBox(
             urwid.Pile([
-                ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск, [] - папки"), align='center')),
+                ('pack', urwid.Text(('help', "Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть чат, Esc - назад, / - поиск"), align='center')),
                 ('pack', self.search_edit),
-                self.chat_list
+                urwid.BoxAdapter(self.chat_list, 30)  # Фиксированная высота для списка чатов
             ])
         )
         
@@ -244,6 +289,14 @@ class TelegramTUI:
         self.selected_chat_index = 0
         self.focused_element = "chat_list"  # chat_list, search, messages, input
         self.current_chat_id = None
+        
+        # Добавляем таймеры обновления
+        self.chat_update_task = None
+        self.message_update_task = None
+        self.last_update_time = 0
+        self.update_interval = 3  # секунды для чатов
+        self.message_update_interval = 1  # секунда для сообщений
+        self.last_message_update_time = 0
     
     def switch_screen(self, screen_name: str):
         """Переключение между экранами"""
@@ -313,10 +366,31 @@ class TelegramTUI:
             # Фильтруем по поисковому запросу
             search_query = normalize_text(self.search_edit.get_edit_text().lower())
             if search_query:
-                dialogs = [
-                    d for d in dialogs 
-                    if search_query in normalize_text(str(d.name)).lower()
-                ]
+                filtered_dialogs = []
+                for dialog in dialogs:
+                    try:
+                        # Поиск по имени
+                        name = ""
+                        if hasattr(dialog.entity, 'title') and dialog.entity.title:
+                            name = dialog.entity.title
+                        elif hasattr(dialog.entity, 'first_name'):
+                            name = dialog.entity.first_name
+                            if hasattr(dialog.entity, 'last_name') and dialog.entity.last_name:
+                                name += f" {dialog.entity.last_name}"
+                        
+                        # Поиск по последнему сообщению
+                        last_message = ""
+                        if dialog.message and hasattr(dialog.message, 'message'):
+                            last_message = dialog.message.message
+                        
+                        # Если есть совпадение, добавляем диалог
+                        if (search_query in normalize_text(name).lower() or 
+                            search_query in normalize_text(last_message).lower()):
+                            filtered_dialogs.append(dialog)
+                    except Exception as e:
+                        print(f"Ошибка фильтрации диалога: {e}")
+                
+                dialogs = filtered_dialogs
             
             # Очищаем список
             self.chat_walker[:] = []
@@ -353,11 +427,10 @@ class TelegramTUI:
                     self.chat_walker.append(chat)
                 except Exception as e:
                     print(f"Ошибка создания виджета чата: {e}")
-                    print(f"Тип объекта: {type(dialog.entity)}")
-                    print(f"Атрибуты: {dir(dialog.entity)}")
             
             # Обновляем фокус
             if self.chat_walker:
+                self.selected_chat_index = min(self.selected_chat_index, len(self.chat_walker) - 1)
                 self.chat_list.set_focus(self.selected_chat_index)
                 self.update_selected_chat()
             
@@ -368,8 +441,10 @@ class TelegramTUI:
         """Обновляет выделение выбранного чата"""
         try:
             for i, chat in enumerate(self.chat_walker):
+                was_selected = chat.is_selected
                 chat.is_selected = (i == self.selected_chat_index)
-                chat.update_widget()
+                if was_selected != chat.is_selected:
+                    chat.update_widget()
         except Exception as e:
             print(f"Ошибка обновления выделения: {e}")
     
@@ -434,88 +509,100 @@ class TelegramTUI:
     async def handle_chat_input(self, key):
         """Обработка ввода в экране чатов"""
         if key == 'tab':
-            # Переключаем фокус циклически
-            if self.focused_element == "chat_list":
-                self.focused_element = "search"
-                self.left_panel.original_widget.focus_position = 1  # Фокус на поиск
-            elif self.focused_element == "search":
-                if self.current_chat_id:
-                    self.focused_element = "input"
-                    self.chat_widget.focus_position = 1  # Правая панель
-                    self.right_panel.original_widget.focus_position = 1  # Фокус на ввод
-                else:
-                    self.focused_element = "chat_list"
-                    self.chat_widget.focus_position = 0  # Левая панель
-                    self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
-            elif self.focused_element == "input":
+            if self.focused_element == "search":
                 self.focused_element = "chat_list"
-                self.chat_widget.focus_position = 0  # Левая панель
-                self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
-        
-        elif key == '/':
-            # Фокус на поиск
-            self.focused_element = "search"
-            self.chat_widget.focus_position = 0
-            self.left_panel.original_widget.focus_position = 1
-        
-        elif key == '[':
-            # Переход в предыдущую папку
-            if self.current_folder is not None:
-                self.current_folder = None
-                self.selected_chat_index = 0
+                self.left_panel.original_widget.focus_position = 2
+                # Обновляем список при переключении на чаты
+                await self.update_chat_list()
+            elif self.focused_element == "chat_list":
+                if self.current_chat_id:
+                    self.focused_element = "messages"
+                    self.chat_widget.focus_position = 1
+                    self.right_panel.original_widget.focus_position = 0
+                    # Обновляем сообщения при переключении на них
+                    await self.update_message_list(self.current_chat_id)
+                else:
+                    self.focused_element = "search"
+                    self.left_panel.original_widget.focus_position = 1
+            elif self.focused_element == "messages":
+                self.focused_element = "input"
+                self.right_panel.original_widget.focus_position = 1
+            elif self.focused_element == "input":
+                self.focused_element = "search"
+                self.chat_widget.focus_position = 0
+                self.left_panel.original_widget.focus_position = 1
+                # Обновляем поиск при переключении на него
                 await self.update_chat_list()
         
-        elif key == ']':
-            # Переход в следующую папку
-            if self.current_folder is None and self.folders:
-                self.current_folder = 1  # Архив
-                self.selected_chat_index = 0
-                await self.update_chat_list()
-        
-        elif key == 'up' and self.focused_element == "chat_list":
-            # Выбор предыдущего чата
-            if self.chat_walker:
-                self.selected_chat_index = max(0, self.selected_chat_index - 1)
-                self.chat_list.set_focus(self.selected_chat_index)
+        elif key in ('up', 'down'):
+            if self.focused_element == "chat_list" and self.chat_walker:
+                if key == 'up':
+                    if self.chat_list.focus_position > 0:
+                        self.chat_list.focus_position -= 1
+                else:
+                    if self.chat_list.focus_position < len(self.chat_walker) - 1:
+                        self.chat_list.focus_position += 1
+                
+                # Обновляем выделение
+                self.selected_chat_index = self.chat_list.focus_position
                 self.update_selected_chat()
-        
-        elif key == 'down' and self.focused_element == "chat_list":
-            # Выбор следующего чата
-            if self.chat_walker:
-                self.selected_chat_index = min(len(self.chat_walker) - 1, self.selected_chat_index + 1)
-                self.chat_list.set_focus(self.selected_chat_index)
-                self.update_selected_chat()
+                
+                # Если чат открыт, обновляем его содержимое
+                if self.current_chat_id:
+                    focused = self.chat_walker[self.selected_chat_index]
+                    self.current_chat_id = focused.chat_id
+                    await self.update_message_list(focused.chat_id)
+            
+            elif self.focused_element == "messages" and self.message_walker:
+                if key == 'up':
+                    if self.message_list.focus_position > 0:
+                        self.message_list.focus_position -= 1
+                else:
+                    if self.message_list.focus_position < len(self.message_walker) - 1:
+                        self.message_list.focus_position += 1
         
         elif key == 'enter':
-            if self.focused_element == "chat_list" and self.chat_walker:
-                # Открываем выбранный чат
-                focused = self.chat_walker[self.selected_chat_index]
-                self.current_chat_id = focused.chat_id
-                await self.update_message_list(focused.chat_id)
-                self.focused_element = "input"
-                self.chat_widget.focus_position = 1  # Правая панель
-                self.right_panel.original_widget.focus_position = 1  # Фокус на ввод
-            
+            if self.focused_element == "search":
+                await self.update_chat_list()
+                self.focused_element = "chat_list"
+                self.left_panel.original_widget.focus_position = 2
+            elif self.focused_element == "chat_list" and self.chat_walker:
+                try:
+                    focused = self.chat_walker[self.chat_list.focus_position]
+                    self.current_chat_id = focused.chat_id
+                    self.selected_chat_index = self.chat_list.focus_position
+                    await self.update_message_list(focused.chat_id)
+                    self.focused_element = "input"
+                    self.chat_widget.focus_position = 1
+                    self.right_panel.original_widget.focus_position = 1
+                    # Сбрасываем время последнего обновления сообщений
+                    self.last_message_update_time = 0
+                except Exception as e:
+                    print(f"Ошибка при открытии чата: {e}")
             elif self.focused_element == "input" and self.current_chat_id:
-                # Отправляем сообщение
                 message = self.input_edit.get_edit_text()
                 if message.strip():
                     try:
                         await self.telegram_client.send_message(self.current_chat_id, message)
-                        self.input_edit.set_edit_text("")  # Очищаем поле ввода
-                        await self.update_message_list(self.current_chat_id)  # Обновляем список сообщений
+                        self.input_edit.set_edit_text("")
+                        # Сразу обновляем сообщения после отправки
+                        self.last_message_update_time = 0
+                        await self.update_message_list(self.current_chat_id)
                     except Exception as e:
                         print(f"Ошибка отправки сообщения: {e}")
         
         elif key == 'esc':
             if self.focused_element in ("input", "messages"):
-                # Возвращаемся к списку чатов
+                # Закрываем текущий чат
+                self.current_chat_id = None
+                self.message_walker[:] = []
+                self.input_edit.set_edit_text("")
                 self.focused_element = "chat_list"
-                self.chat_widget.focus_position = 0  # Левая панель
-                self.left_panel.original_widget.focus_position = 2  # Фокус на список чатов
-                self.current_chat_id = None  # Сбрасываем текущий чат
+                self.chat_widget.focus_position = 0
+                self.left_panel.original_widget.focus_position = 2
             elif self.focused_element == "search":
-                # Возвращаемся к списку чатов из поиска
+                self.search_edit.set_edit_text("")
+                await self.update_chat_list()
                 self.focused_element = "chat_list"
                 self.left_panel.original_widget.focus_position = 2
     
@@ -530,6 +617,50 @@ class TelegramTUI:
         else:
             asyncio.create_task(self.handle_chat_input(key))
     
+    async def start_auto_updates(self):
+        """Запускает автоматическое обновление чатов и сообщений"""
+        if self.chat_update_task:
+            self.chat_update_task.cancel()
+        if self.message_update_task:
+            self.message_update_task.cancel()
+            
+        async def chat_update_loop():
+            while True:
+                try:
+                    current_time = datetime.datetime.now().timestamp()
+                    if current_time - self.last_update_time >= self.update_interval:
+                        await self.update_chat_list()
+                        self.last_update_time = current_time
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"Ошибка в цикле обновления чатов: {e}")
+                    await asyncio.sleep(1)
+        
+        async def message_update_loop():
+            while True:
+                try:
+                    if self.current_chat_id:
+                        current_time = datetime.datetime.now().timestamp()
+                        if current_time - self.last_message_update_time >= self.message_update_interval:
+                            await self.update_message_list(self.current_chat_id)
+                            self.last_message_update_time = current_time
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    print(f"Ошибка в цикле обновления сообщений: {e}")
+                    await asyncio.sleep(0.5)
+        
+        self.chat_update_task = asyncio.create_task(chat_update_loop())
+        self.message_update_task = asyncio.create_task(message_update_loop())
+
+    async def stop_auto_updates(self):
+        """Останавливает автоматическое обновление"""
+        if self.chat_update_task:
+            self.chat_update_task.cancel()
+            self.chat_update_task = None
+        if self.message_update_task:
+            self.message_update_task.cancel()
+            self.message_update_task = None
+
     async def run(self):
         """Запуск приложения"""
         try:
@@ -541,6 +672,8 @@ class TelegramTUI:
             if await self.telegram_client.is_user_authorized():
                 self.switch_screen('chats')
                 await self.update_chat_list()
+                # Запускаем автообновление
+                await self.start_auto_updates()
             else:
                 self.switch_screen('auth')
             
@@ -558,6 +691,8 @@ class TelegramTUI:
         except Exception as e:
             print(f"Ошибка при запуске приложения: {e}")
         finally:
+            # Останавливаем автообновление
+            await self.stop_auto_updates()
             if self.telegram_client and self.telegram_client.is_connected():
                 await self.telegram_client.disconnect()
                 print("Отключено от Telegram")
