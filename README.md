@@ -11,7 +11,10 @@
 
 1. Клонируйте репозиторий:
 ```bash
-git clone https://github.com/yourusername/talc.git
+git clone https://github.com/talc/talc.git
+git checkout nosupport #for alpha (версия без поддержки для пользователей)
+# или
+git checkout dev # stable (поддержка для пользователей есть)
 cd talc
 ```
 
