@@ -38,5 +38,5 @@ cp .env.example .env
 ## Запуск
 
 ```bash
-python src/app.py
+./main.py
 ```

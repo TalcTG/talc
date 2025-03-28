@@ -9,13 +9,16 @@ from rich.console import Console
 from src.screens import AuthScreen, ChatScreen
 
 # Настройка консоли для корректной работы с Unicode
+"""
 console = Console(force_terminal=True, color_system="auto")
 sys.stdout = console
+"""
+# спойлер: не помогло
 
 load_dotenv()
 
 api_id = os.getenv("API_ID")
-api_hash = os.getenv("API_HASH")
+api_hash = os.getenv("API_HASH")                                                                                                                     
 
 if not api_id or not api_hash:
     raise ValueError(
@@ -33,7 +36,6 @@ class TelegramTUI(App):
 
     def __init__(self):
         super().__init__()
-        self.console = console
 
     async def on_mount(self) -> None:
         self.telegram_client = TelegramClient("user", api_id, api_hash)
@@ -52,3 +54,6 @@ class TelegramTUI(App):
     async def on_exit_app(self):
         await self.telegram_client.disconnect()
         return super()._on_exit_app()
+
+if __name__ == "__main__":
+    raise Exception("Запущен не тот файл. Запустите main.py.")

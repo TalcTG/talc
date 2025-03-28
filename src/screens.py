@@ -8,6 +8,7 @@ from telethon.errors import SessionPasswordNeededError
 from telethon import TelegramClient, events
 from src.widgets import Dialog, Chat, normalize_text
 from textual import log
+from textual.keys import Keys, _character_to_key
 
 class AuthScreen(Screen):
     """Класс экрана логина в аккаунт"""
@@ -62,6 +63,13 @@ class AuthScreen(Screen):
 
 class ChatScreen(Screen):
     """Класс экрана чатов, он же основной экран приложения"""
+    
+    BINDINGS = [
+        (Keys.Tab, "log(\"Нажат таб\")", "Переключение фокуса"),
+        (Keys.Enter, "log(\"Нажат энтер\")", "Открыть"),
+        (Keys.Escape, "log(\"Нажат эскейп\")", "Назад"),
+        (_character_to_key("/"), "log(\"Нажат слэш\")", "Поиск")
+    ]
 
     def __init__(
             self, 
@@ -86,7 +94,6 @@ class ChatScreen(Screen):
             .query_one("#chat_container")
         
         self.search_input = self.query_one("#search_input")
-        self.help_label = self.query_one("#help_label")
 
         log("Первоначальная загрузка виджетов чатов...")
         self.mount_chats(
@@ -140,7 +147,8 @@ class ChatScreen(Screen):
             if self.search_query:
                 dialogs = [
                     d for d in dialogs 
-                    if self.search_query.lower() in normalize_text(d.name).lower()
+                    if self.search_query.lower() in \
+                        normalize_text(d.name).lower()
                 ]
 
             limit = len(dialogs)
@@ -152,7 +160,8 @@ class ChatScreen(Screen):
                 chat.msg = normalize_text(str(dialogs[i].message.message))
                 chat.peer_id = dialogs[i].id
                 chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (self.focused_element == "chat_list" and i == self.selected_chat_index)
+                chat.is_focused = (self.focused_element == "chat_list" and \
+                                   i == self.selected_chat_index)
 
             self.is_chat_update_blocked = False
             log("Чаты обновлены")
@@ -166,7 +175,7 @@ class ChatScreen(Screen):
             self.update_chat_list()
 
     def on_key(self, event: Key) -> None:
-        if event.key == "tab":
+        if event.key == Keys.Tab:
             # Переключаем фокус между элементами
             if self.focused_element == "search":
                 self.focused_element = "chat_list"
@@ -185,44 +194,43 @@ class ChatScreen(Screen):
         if not chats:
             return
 
-        if event.key == "up":
-            self.selected_chat_index = max(0, self.selected_chat_index - 1)
-            for i, chat in enumerate(chats):
-                chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (i == self.selected_chat_index)
-            # Прокручиваем к выбранному чату
-            selected_chat = chats[self.selected_chat_index]
-            self.chat_container.scroll_to(selected_chat, animate=False)
-        elif event.key == "down":
-            self.selected_chat_index = min(len(chats) - 1, self.selected_chat_index + 1)
-            for i, chat in enumerate(chats):
-                chat.is_selected = (i == self.selected_chat_index)
-                chat.is_focused = (i == self.selected_chat_index)
-            # Прокручиваем к выбранному чату
-            selected_chat = chats[self.selected_chat_index]
-            self.chat_container.scroll_to(selected_chat, animate=False)
-        elif event.key == "enter":
-            chats[self.selected_chat_index].on_click()
-        elif event.key == "escape":
-            # Возвращаемся к списку чатов
-            self.app.pop_screen()
-            self.app.push_screen("chats")
-        elif event.key == "/":
-            # Фокус на поиск
-            self.focused_element = "search"
-            self.search_input.focus()
-            self.update_chat_list()
+        match event.key:
+            case Keys.Up:
+                self.selected_chat_index = max(0, self.selected_chat_index - 1)
+                for i, chat in enumerate(chats):
+                    chat.is_selected = (i == self.selected_chat_index)
+                    chat.is_focused = (i == self.selected_chat_index)
+                # Прокручиваем к выбранному чату
+                selected_chat = chats[self.selected_chat_index]
+                self.chat_container.scroll_to(selected_chat, animate=False)
+            case Keys.Down:
+                self.selected_chat_index = min(len(chats) - 1, self.selected_chat_index + 1)
+                for i, chat in enumerate(chats):
+                    chat.is_selected = (i == self.selected_chat_index)
+                    chat.is_focused = (i == self.selected_chat_index)
+                # Прокручиваем к выбранному чату
+                selected_chat = chats[self.selected_chat_index]
+                self.chat_container.scroll_to(selected_chat, animate=False)
+            case Keys.Enter:
+                chats[self.selected_chat_index].on_click()
+            case Keys.Escape:
+                # Возвращаемся к списку чатов
+                self.app.pop_screen()
+                self.app.push_screen("chats")
+            case "/": #Не работает: нужен кейкод слэша
+                # Фокус на поиск
+                self.focused_element = "search"
+                self.search_input.focus()
+                self.update_chat_list()
 
     def compose(self):
         yield Footer()
         with Horizontal(id="main_container"):
             with Vertical(id="chats"):
-                yield Label(
-                    "Навигация: Tab - переключение фокуса, ↑↓ - выбор чата, Enter - открыть, Esc - назад, / - поиск",
-                    id="help_label",
-                    classes="help-text"
-                )
                 yield Input(placeholder=normalize_text("Поиск чатов..."), id="search_input")
                 yield VerticalScroll(id="chat_container")
             yield ContentSwitcher(id="dialog_switcher")
                 #yield Dialog(telegram_client=self.telegram_client)
+
+if __name__ == "__main__":
+    raise Exception("Запущен не тот файл. Запустите main.py.")

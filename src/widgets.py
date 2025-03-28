@@ -13,8 +13,9 @@ import emoji
 import os
 import tempfile
 from PIL import Image
-import pywhatkit as kit
+#import pywhatkit as kit
 from textual import log
+from warnings import deprecated
 
 def remove_emoji(text: str) -> str:
     """Удаляет эмодзи из текста"""
@@ -29,11 +30,12 @@ def normalize_text(text: str) -> str:
     # Удаляем эмодзи
     text = remove_emoji(text)
     # Удаляем все управляющие символы
-    text = ''.join(char for char in text if unicodedata.category(char)[0] != 'C')
+    text = ''\
+        .join(char for char in text if unicodedata.category(char)[0] != 'C')
     # Нормализуем Unicode
     text = unicodedata.normalize('NFKC', text)
     # Заменяем специальные символы на их ASCII-эквиваленты
-    text = text.replace('—', '-').replace('–', '-').replace('…', '...')
+    text = text.replace('—', '-').replace('–', '-')
     # Удаляем все непечатаемые символы
     text = ''.join(char for char in text if char.isprintable())
     return text
@@ -47,6 +49,7 @@ def safe_ascii(text: str) -> str:
     # Оставляем только ASCII символы и пробелы
     return ''.join(char for char in text if ord(char) < 128 or char.isspace())
 
+@deprecated("Не работает на моём компьютере.")
 def convert_image_to_ascii(image_path: str, width: int = 50) -> str:
     """Конвертирует изображение в ASCII-арт"""
     try:
@@ -123,11 +126,21 @@ class Chat(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="chat-item"):
+            """
             # Используем ASCII-символы для рамки
-            yield Label(f"+---+\n| {safe_ascii(self.username[:1].upper()):1} |\n+---+")
+            yield Label(
+                f"┌───┐\n│ {normalize_text(
+                    self.username[:1].upper()
+                ):1} │\n└───┘"
+            )
             with Vertical():
                 yield Label(normalize_text(self.username), id="name")
                 yield Label(normalize_text(self.msg), id="last_msg")
+            """
+            yield Label(f"┌───┐\n│ {self.username[:1].upper():1} │\n└───┘")
+            with Vertical():
+                yield Label(self.username, id="name")
+                yield Label(self.msg, id="last_msg")
 
     def on_mouse_enter(self) -> None:
         self.add_class("hover")
@@ -324,3 +337,6 @@ class Message(Widget):
             self.classes = "is_me_true"
         else:
             self.classes = "is_me_false"
+
+if __name__ == "__main__":
+    raise Exception("Запущен не тот файл. Запустите main.py.")
