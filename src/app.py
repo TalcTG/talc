@@ -1,31 +1,33 @@
 """Главный файл приложения"""
 
-import os
+from os import getenv
 from dotenv import load_dotenv
-from telethon import TelegramClient, events
+from telethon import TelegramClient
 from textual.app import App
 from src.screens import AuthScreen, ChatScreen
+import src.locales
 
 load_dotenv()
+API_ID = getenv("API_ID")
+API_HASH = getenv("API_HASH")
 
-api_id = os.getenv("API_ID")
-api_hash = os.getenv("API_HASH")
-
-if not api_id or not api_hash:
+if not API_ID or not API_HASH:
     raise ValueError(
         "API_ID и API_HASH не найдены в .env файле. "
         "Пожалуйста, скопируйте .env.example в .env и заполните свои ключи."
     )
 
-api_id = int(api_id)
+API_ID = int(API_ID)
 
-class TelegramTUI(App):
+#locale = locales.
+
+class Talc(App):
     """Класс приложения"""
 
     CSS_PATH = "style.tcss"
 
     async def on_mount(self) -> None:
-        self.telegram_client = TelegramClient("user", api_id, api_hash)
+        self.telegram_client = TelegramClient(getenv("CURRENT_USER"), API_ID, API_HASH)
         await self.telegram_client.connect()
 
         chat_screen = ChatScreen(telegram_client=self.telegram_client)
@@ -37,6 +39,8 @@ class TelegramTUI(App):
             self.push_screen("auth")
         else:
             self.push_screen("chats")
+
+        self.scroll_sensitivity_y = 1.0
 
     async def on_exit_app(self):
         await self.telegram_client.disconnect()

@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Файл инициализации приложения"""
 
-from src.app import TelegramTUI
+from src.app import Talc
 
 if __name__ == "__main__":
-    tg = TelegramTUI()
-    tg.run()
+    talc = Talc()
+    talc.run()

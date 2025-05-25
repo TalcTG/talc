@@ -10,6 +10,10 @@ Chat {
     height: 3;
 }
 
+Chat Horizontal Vertical Label{
+    height: 1;
+}
+
 Rule {
     color: #FFFFFF;
 }
@@ -42,12 +46,13 @@ Message Container {
     align: right middle;
 }
 
-.is_me_true Static {
+.is_me_true Container Label {
     border: solid $primary;
     width: auto;
     height: auto;
-    text-align: right;
+    text-align: left;
     min-width: 11;
+    max-width: 100%;
 }
 
 .is_me_false Container {
@@ -55,10 +60,24 @@ Message Container {
     align: left middle;
 }
 
-.is_me_false Static {
+.is_me_false Container Label {
     border: solid $foreground;
     width: auto;
     height: auto;
     text-align: left;
     min-width: 11;
+    max-width: 100%;
+}
+
+ContentSwitcher {
+    width: 100%;
+    height: 100%;
+}
+
+.begin_talk_label {
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    content-align: center middle;
+    color: $panel;
 }

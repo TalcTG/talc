@@ -1,6 +1,3 @@
 textual
 telethon
 python-dotenv
-emoji
-Pillow
-pywhatkit

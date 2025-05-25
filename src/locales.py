@@ -1,0 +1,2 @@
+ru = {"greeting_auth": "Добро пожаловать в Тальк", "phone_number": "Номер телефона", "code": "Код", "password": "Пароль", "you": "Вы", "mention": "Вас упомянули"}
+en = {"greeting_auth": "Welcome to Talc", "phone_number": "Phone number", "code": "Code", "password": "Password", "you": "You", "mention": "You got mentioned"}

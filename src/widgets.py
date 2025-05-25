@@ -5,14 +5,18 @@ from textual.widget import Widget
 from textual.reactive import Reactive
 from textual.widgets import Input, Button, Label, Static, ContentSwitcher
 from textual.app import ComposeResult, RenderResult
-from telethon import TelegramClient, events, utils
+from textual.content import Content
+from telethon import TelegramClient, events, utils, types
 import datetime
+from os import getenv
 
 class Chat(Widget):
     """Класс виджета чата для панели чатов"""
 
     username: Reactive[str] = Reactive(" ", recompose=True)
+    peername: Reactive[str] = Reactive(" ", recompose=True)
     msg: Reactive[str] = Reactive(" ", recompose=True)
+    is_group: Reactive[bool] = Reactive(False, recompose=True)
     peer_id: Reactive[int] = Reactive(0)
 
     def __init__(
@@ -30,30 +34,34 @@ class Chat(Widget):
         )
         
     def on_mount(self) -> None:
-        self.switcher = self.screen.query_one(Horizontal).query_one("#dialog_switcher", ContentSwitcher)
+        self.switcher = self.screen.query_one(Horizontal)\
+            .query_one("#dialog_switcher", ContentSwitcher)
     
     def on_click(self) -> None:
+        # Получение ID диалога и создание DOM-ID на его основе
         dialog_id = f"dialog-{str(self.peer_id)}"
-        print("click 1")
+
+        # Маунт диалога
         try:
             self.switcher.mount(Dialog(
                 telegram_client=self.app.telegram_client, 
                 chat_id=self.peer_id, 
                 id=dialog_id
             ))
-            print("click 1.1")
         except:
-            print("click 1.2")
-        print("click 2")
+            # Диалог уже есть: ничего не делаем
+            pass
+
         self.switcher.current = dialog_id
         self.switcher.recompose()
-        print("click 3")
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Label(f"┌───┐\n│ {self.username[:1]:1} │\n└───┘")
+            yield Label(f"┌───┐\n│ {self.peername[:1]:1} │\n└───┘")
             with Vertical():
-                yield Label(self.username, id="name")
+                yield Label(self.peername, id="peername")
+                if self.is_group:
+                    yield Label(self.username, id="name")
                 yield Label(self.msg, id="last_msg")
 
 class Dialog(Widget):
@@ -66,11 +74,14 @@ class Dialog(Widget):
             disabled=None, 
             telegram_client: TelegramClient | None = None,
             chat_id = None
-        ) -> None:
+    ) -> None:
         super().__init__(id=id, classes=classes, disabled=disabled)
         self.telegram_client = telegram_client
         self.chat_id = chat_id
         self.is_msg_update_blocked = False
+        self.timezone = datetime.timezone(
+            datetime.timedelta(hours=int(getenv("UTC_OFFSET")))
+        )
 
     async def on_mount(self) -> None:
         self.limit = 10
@@ -80,7 +91,6 @@ class Dialog(Widget):
 
         self.me = await self.telegram_client.get_me()
 
-        self.dialog.scroll_end(animate=False)
         await self.update_dialog()
 
         for event in (
@@ -91,6 +101,8 @@ class Dialog(Widget):
             self.telegram_client.on(
                 event(chats=(self.chat_id))
             )(self.update_dialog)
+
+        self.dialog.scroll_down(animate=False, immediate=True)
 
     def mount_messages(self, limit: int) -> None:
         print("Загрузка виджетов сообщений...")
@@ -123,11 +135,46 @@ class Dialog(Widget):
 
             for i in range(limit):
                 msg = self.dialog.query_one(f"#msg-{i + 1}")
-                msg.message = ""
                 if str(messages[i].message):
-                    msg.message = str(messages[i].message)
+                    message = Content(
+                        "[Медиа] " * \
+                        bool(messages[i].media) + \
+                        str(messages[i].message)
+                    )
+                else:
+                    message = Content("[Медиа]" * bool(messages[i].media) + "")
                 
-                #TODO: завести это:
+                entities = messages[i].entities
+                if entities:
+                    for entity in entities:
+                        match type(entity):
+                            case types.MessageEntityBold:
+                                message = message.stylize(
+                                    "bold", 
+                                    entity.offset, 
+                                    entity.offset + entity.length
+                                )
+                            case types.MessageEntityUnderline:
+                                message = message.stylize(
+                                    "underline", 
+                                    entity.offset, 
+                                    entity.offset + entity.length
+                                )
+                            case types.MessageEntityItalic:
+                                message = message.stylize(
+                                    "italic", 
+                                    entity.offset, 
+                                    entity.offset + entity.length
+                                )
+                            case types.MessageEntityStrike:
+                                message = message.stylize(
+                                    "strike", 
+                                    entity.offset, 
+                                    entity.offset + entity.length
+                                )
+
+                msg.message = message
+                
                 try:
                     is_me = messages[i].from_id.user_id == self.me.id
                 except:
@@ -137,7 +184,7 @@ class Dialog(Widget):
                 msg.username = utils.get_display_name(messages[i].sender)
                 msg.send_time = messages[i]\
                     .date\
-                    .astimezone(datetime.timezone.utc)\
+                    .astimezone(self.timezone)\
                     .strftime("%H:%M")
 
             self.is_msg_update_blocked = False
@@ -172,7 +219,7 @@ class Dialog(Widget):
 class Message(Widget):
     """Класс виджета сообщений для окна диалога"""
 
-    message: Reactive[str] = Reactive("", recompose=True)
+    message: Reactive[Content] = Reactive("", recompose=True)
     is_me: Reactive[bool] = Reactive(False, recompose=True)
     username: Reactive[str] = Reactive("", recompose=True)
     send_time: Reactive[str] = Reactive("", recompose=True)
@@ -190,12 +237,12 @@ class Message(Widget):
         pass
 
     def compose(self) -> ComposeResult:
-        static = Static(self.message)
-        static.border_title = self.username * (not self.is_me)
-        static.border_subtitle = self.send_time
+        label = Label(self.message, markup=False)
+        label.border_title = self.username * (not self.is_me)
+        label.border_subtitle = self.send_time
         
         with Container():
-            yield static
+            yield label
         
         if self.is_me:
             self.classes = "is_me_true"
