@@ -9,7 +9,7 @@ Talc is a Telegram client with TUI, written in Python, Telethon and Textual.
 - Python 3.12
 - pyenv (recommended for managing Python versions)
 
-## Установка
+## Installation
 
 1. Install Python 3.12 via pyenv:
 ```bash
