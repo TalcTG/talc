@@ -74,7 +74,7 @@ ContentSwitcher {
     height: 100%;
 }
 
-.begin_talk_label {
+.start_converse_label {
     width: 100%;
     height: 100%;
     text-align: center;

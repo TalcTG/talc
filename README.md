@@ -31,7 +31,7 @@ pip install -r requirements.txt
 4. Настройте переменные окружения:
 ```bash
 cp .env.example .env
-# Отредактируйте .env файл, добавив свои API ключи
+# Настройте .env файл и добавьте свои API ключи
 # Получите ключи на https://my.telegram.org/apps
 ```
 

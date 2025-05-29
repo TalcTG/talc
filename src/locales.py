@@ -1,2 +1,3 @@
-ru = {"greeting_auth": "Добро пожаловать в Тальк", "phone_number": "Номер телефона", "code": "Код", "password": "Пароль", "you": "Вы", "mention": "Вас упомянули"}
-en = {"greeting_auth": "Welcome to Talc", "phone_number": "Phone number", "code": "Code", "password": "Password", "you": "You", "mention": "You got mentioned"}
+codes = ["auth_greeting", "phone_number", "code", "password", "you", "mention", "media", "message", "folders", "switch_focus", "enter", "back", "search", "start_converse"]
+ru = ["Добро пожаловать в Тальк", "Номер телефона", "Код", "Пароль", "Вы", "Вас упомянули", "Медиа", "Сообщение", "Папки", "Переключение фокуса", "Открыть", "Назад", "Поиск", "Нажмите на чат в панели слева, чтобы начать общаться"]
+en = ["Welcome to Talc", "Phone number", "Code", "Password", "You", "You got mentioned", "Media", "Message", "Folders", "Switch focus", "Enter", "Back", "Search", "Click on the chat to start conversation"]

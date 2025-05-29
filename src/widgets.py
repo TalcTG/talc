@@ -6,6 +6,7 @@ from textual.reactive import Reactive
 from textual.widgets import Input, Button, Label, Static, ContentSwitcher
 from textual.app import ComposeResult, RenderResult
 from textual.content import Content
+from textual.style import Style
 from telethon import TelegramClient, events, utils, types
 import datetime
 from os import getenv
@@ -17,6 +18,7 @@ class Chat(Widget):
     peername: Reactive[str] = Reactive(" ", recompose=True)
     msg: Reactive[str] = Reactive(" ", recompose=True)
     is_group: Reactive[bool] = Reactive(False, recompose=True)
+    is_channel: Reactive[bool] = Reactive(False, recompose=True)
     peer_id: Reactive[int] = Reactive(0)
 
     def __init__(
@@ -46,7 +48,8 @@ class Chat(Widget):
             self.switcher.mount(Dialog(
                 telegram_client=self.app.telegram_client, 
                 chat_id=self.peer_id, 
-                id=dialog_id
+                id=dialog_id,
+                is_channel=self.is_channel and not self.is_group
             ))
         except:
             # Диалог уже есть: ничего не делаем
@@ -59,10 +62,10 @@ class Chat(Widget):
         with Horizontal():
             yield Label(f"┌───┐\n│ {self.peername[:1]:1} │\n└───┘")
             with Vertical():
-                yield Label(self.peername, id="peername")
+                yield Label(self.peername, id="peername", markup=False)
                 if self.is_group:
-                    yield Label(self.username, id="name")
-                yield Label(self.msg, id="last_msg")
+                    yield Label(self.username, id="name", markup=False)
+                yield Label(self.msg, id="last_msg", markup=False)
 
 class Dialog(Widget):
     """Класс окна диалога"""
@@ -73,20 +76,21 @@ class Dialog(Widget):
             classes=None, 
             disabled=None, 
             telegram_client: TelegramClient | None = None,
-            chat_id = None
+            chat_id: int | None = None,
+            is_channel: bool | None = None
     ) -> None:
         super().__init__(id=id, classes=classes, disabled=disabled)
         self.telegram_client = telegram_client
         self.chat_id = chat_id
         self.is_msg_update_blocked = False
-        self.timezone = datetime.timezone(
-            datetime.timedelta(hours=int(getenv("UTC_OFFSET")))
-        )
+        self.timezone = self.app.timezone
+        self.is_channel = is_channel
 
     async def on_mount(self) -> None:
         self.limit = 10
 
-        self.msg_input = self.query_one("#msg_input")
+        if not self.is_channel:
+            self.msg_input = self.query_one("#msg_input")
         self.dialog = self.query_one(Vertical).query_one("#dialog")
 
         self.me = await self.telegram_client.get_me()
@@ -102,7 +106,7 @@ class Dialog(Widget):
                 event(chats=(self.chat_id))
             )(self.update_dialog)
 
-        self.dialog.scroll_down(animate=False, immediate=True)
+        #self.dialog.scroll_down(animate=False, immediate=True)
 
     def mount_messages(self, limit: int) -> None:
         print("Загрузка виджетов сообщений...")
@@ -135,45 +139,45 @@ class Dialog(Widget):
 
             for i in range(limit):
                 msg = self.dialog.query_one(f"#msg-{i + 1}")
+                message = Content(str(messages[i].message))
                 if str(messages[i].message):
-                    message = Content(
-                        "[Медиа] " * \
-                        bool(messages[i].media) + \
-                        str(messages[i].message)
-                    )
-                else:
-                    message = Content("[Медиа]" * bool(messages[i].media) + "")
-                
-                entities = messages[i].entities
-                if entities:
-                    for entity in entities:
-                        match type(entity):
-                            case types.MessageEntityBold:
-                                message = message.stylize(
-                                    "bold", 
-                                    entity.offset, 
-                                    entity.offset + entity.length
-                                )
-                            case types.MessageEntityUnderline:
-                                message = message.stylize(
-                                    "underline", 
-                                    entity.offset, 
-                                    entity.offset + entity.length
-                                )
-                            case types.MessageEntityItalic:
-                                message = message.stylize(
-                                    "italic", 
-                                    entity.offset, 
-                                    entity.offset + entity.length
-                                )
-                            case types.MessageEntityStrike:
-                                message = message.stylize(
-                                    "strike", 
-                                    entity.offset, 
-                                    entity.offset + entity.length
-                                )
+                    entities = messages[i].entities
+                    if entities:
+                        for entity in entities:
+                            match type(entity):
+                                case types.MessageEntityBold:
+                                    message = message.stylize(
+                                        "bold", 
+                                        entity.offset, 
+                                        entity.offset + entity.length
+                                    )
+                                case types.MessageEntityUnderline:
+                                    message = message.stylize(
+                                        "underline", 
+                                        entity.offset, 
+                                        entity.offset + entity.length
+                                    )
+                                case types.MessageEntityItalic:
+                                    message = message.stylize(
+                                        "italic", 
+                                        entity.offset, 
+                                        entity.offset + entity.length
+                                    )
+                                case types.MessageEntityStrike:
+                                    message = message.stylize(
+                                        "strike", 
+                                        entity.offset, 
+                                        entity.offset + entity.length
+                                    )
 
-                msg.message = message
+                if messages[i].media and str(message):
+                    msg.message = Content(f"[{self.app.locale["media"]}] ")\
+                        .stylize("link", 0, 6) + message
+                elif messages[i].media:
+                    msg.message = Content(f"[{self.app.locale["media"]}]")\
+                        .stylize("link", 0, 6)
+                else:
+                    msg.message = message
                 
                 try:
                     is_me = messages[i].from_id.user_id == self.me.id
@@ -195,9 +199,13 @@ class Dialog(Widget):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield VerticalScroll(id="dialog")
-            with Horizontal(id="input_place"):
-                yield Input(placeholder="Сообщение", id="msg_input")
-                yield Button(label="➤", id="send", variant="primary")
+            if not self.is_channel:
+                with Horizontal(id="input_place"):
+                    yield Input(
+                        placeholder=self.app.locale["message"], 
+                        id="msg_input"
+                    )
+                    yield Button(label="➤", id="send", variant="primary")
 
     async def on_button_pressed(self, event = None) -> None:
         await self.send_message()
@@ -212,7 +220,7 @@ class Dialog(Widget):
                 str(self.msg_input.value)
             )
         except ValueError:
-            self.app.notify("Ошибка отправки")
+            print("Ошибка отправки")
         self.msg_input.value = ""
         await self.update_dialog()
 

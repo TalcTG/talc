@@ -22,17 +22,18 @@ class AuthScreen(Screen):
     ) -> None:
         super().__init__(name, id, classes)
         self.client = telegram_client
+        self.locale = self.app.locale
 
     def on_mount(self) -> None:
         self.ac = self.query_one("#auth_container")
 
     def compose(self) -> ComposeResult:
         with Vertical(id="auth_container"):
-            yield Label("Добро пожаловать в Talc")
-            yield Input(placeholder="Номер телефона", id="phone")
-            yield Input(placeholder="Код", id="code", disabled=True)
+            yield Label(self.locale["auth_greeting"])
+            yield Input(placeholder=self.locale["phone_number"], id="phone")
+            yield Input(placeholder=self.locale["code"], id="code", disabled=True)
             yield Input(
-                placeholder="Пароль", 
+                placeholder=self.locale["password"], 
                 id="password", 
                 password=True, 
                 disabled=True
@@ -75,6 +76,7 @@ class ChatScreen(Screen):
         super().__init__(name, id, classes)
         self.telegram_client = telegram_client
         self.DO_NOTIFY = getenv("DO_NOTIFY")
+        self.locale = self.app.locale
 
     async def on_mount(self) -> None:
         self.limit = 100
@@ -152,6 +154,7 @@ class ChatScreen(Screen):
 
                 chat.peername = str(dialogs[i].name)
                 chat.is_group = dialogs[i].is_group
+                chat.is_channel = dialogs[i].is_channel
                 chat.peer_id = dialogs[i].id
 
                 try:
@@ -161,7 +164,7 @@ class ChatScreen(Screen):
                     is_my_msg = dialogs[i].id == self.me_id
 
                 if dialogs[i].is_group and is_my_msg:
-                    chat.username = "Вы"
+                    chat.username = self.locale["you"]
                     chat.msg = str(dialogs[i].message.message)
                 elif dialogs[i].is_group:
                     chat.username = str(
@@ -169,7 +172,7 @@ class ChatScreen(Screen):
                     )
                     chat.msg = str(dialogs[i].message.message)
                 elif is_my_msg:
-                    chat.msg = "Вы: " * is_my_msg + str(
+                    chat.msg = f"{self.locale["you"]}: " * is_my_msg + str(
                         dialogs[i].message.message
                     )
                 else:
@@ -183,8 +186,8 @@ class ChatScreen(Screen):
     def notify_send(self, event) -> None:
         if not event:
             return None
-        if bool(self.DO_NOTIFY) and event.mentioned and not self.app.focused:
-            system(f"notify-send \"Вас упомянули\" Talc")
+        if int(self.DO_NOTIFY) and not self.app.focused and event.mentioned:
+            system(f"notify-send \"{self.locale["mention"]}\" Talc")
 
     def compose(self) -> ComposeResult:
         yield Footer() # Нижняя панель с подсказками
@@ -196,6 +199,6 @@ class ChatScreen(Screen):
             with ContentSwitcher(id="dialog_switcher"):
                 # ↑ Внутри него как раз крутятся диалоги
                 yield Label(
-                    "Нажмите на чат в панели слева, чтобы начать общаться",
-                    id="begin_talk_label"
+                    self.locale["start_converse"],
+                    id="start_converse_label"
                 ) #TODO: не показывается надпись, надо будет исправить
