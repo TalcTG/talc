@@ -74,10 +74,44 @@ ContentSwitcher {
     height: 100%;
 }
 
-.start_converse_label {
+#start_converse_label {
     width: 100%;
     height: 100%;
     text-align: center;
     content-align: center middle;
     color: $panel;
+}
+
+TopBar {
+    max-height: 3;
+    width: 100%;
+    background: $surface;
+}
+
+TopBar Horizontal {
+    align: left middle;
+}
+
+.avatar {
+    border: solid $foreground;
+    text-align: center;
+    width: 5;
+    height: 3;
+}
+
+.peername_top_bar {
+    padding: 1;
+}
+
+.odd {
+    background: $surface;
+}
+
+.selected_chat {
+    background: $foreground;
+    color: $background
+}
+
+.selected_chat .avatar{
+    border: solid $background;
 }

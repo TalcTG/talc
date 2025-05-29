@@ -30,8 +30,15 @@ class AuthScreen(Screen):
     def compose(self) -> ComposeResult:
         with Vertical(id="auth_container"):
             yield Label(self.locale["auth_greeting"])
-            yield Input(placeholder=self.locale["phone_number"], id="phone")
-            yield Input(placeholder=self.locale["code"], id="code", disabled=True)
+            yield Input(
+                placeholder=self.locale["phone_number"], 
+                id="phone"
+            )
+            yield Input(
+                placeholder=self.locale["code"], 
+                id="code", 
+                disabled=True
+            )
             yield Input(
                 placeholder=self.locale["password"], 
                 id="password", 
@@ -79,15 +86,17 @@ class ChatScreen(Screen):
         self.locale = self.app.locale
 
     async def on_mount(self) -> None:
-        self.limit = 100
+        self.limit = int(self.app.CHATS_LIMIT)
         
-        #Получение ID пользователя (себя)
+        # Получение ID пользователя (себя)
         self.me_id = await self.telegram_client.get_peer_id("me")
         # Получение объекта контейнера чатов
         self.chat_container = self\
             .query_one("#main_container")\
             .query_one("#chats")\
             .query_one("#chat_container")
+        self.switcher = self.screen.query_one(Horizontal)\
+            .query_one("#dialog_switcher", ContentSwitcher)
 
         print("Первоначальная загрузка виджетов чатов...")
         self.mount_chats(
@@ -120,7 +129,7 @@ class ChatScreen(Screen):
         chats_amount = len(self.chat_container.query(Chat))
 
         if limit > chats_amount:
-            # Маунт недостоющих, если чатов меньше, чем нужно
+            # Маунт недостающих, если чатов меньше, чем нужно
             for i in range(limit - chats_amount):
                 chat = Chat(id=f"chat-{i + chats_amount + 1}")
                 self.chat_container.mount(chat)
@@ -178,10 +187,23 @@ class ChatScreen(Screen):
                 else:
                     chat.msg = str(dialogs[i].message.message)
 
+                if self.switcher.current is not None:
+                    current_dialog = \
+                        self.switcher.query_one(f"#{self.switcher.current}")
+                    if chat.peer_id == int(current_dialog.id[7:]):
+                        chat.add_class("selected_chat")
+                    else:
+                        chat.remove_class("selected_chat")
+
             self.is_chat_update_blocked = False
             print("Чаты обновлены")
         else:
             print("Обновление чатов невозможно: уже выполняется")
+
+        if self.switcher.current is not None:
+            current_dialog = \
+                self.switcher.query_one(f"#{self.switcher.current}")
+            await current_dialog.update_dialog()
 
     def notify_send(self, event) -> None:
         if not event:
@@ -196,9 +218,9 @@ class ChatScreen(Screen):
                 yield VerticalScroll(id="chat_container")
                 #TODO: сделать кнопку, чтобы прогрузить больше чатов,
                 # или ленивую прокрутку
-            with ContentSwitcher(id="dialog_switcher"):
+            yield ContentSwitcher(id="dialog_switcher")
                 # ↑ Внутри него как раз крутятся диалоги
-                yield Label(
-                    self.locale["start_converse"],
-                    id="start_converse_label"
-                ) #TODO: не показывается надпись, надо будет исправить
+                #yield Label(
+                #    self.locale["start_converse"],
+                #    id="start_converse_label"
+                #) #TODO: не показывается надпись, надо будет исправить

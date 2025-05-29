@@ -2,24 +2,22 @@
 
 from textual.containers import Horizontal, Vertical, Container, VerticalScroll
 from textual.widget import Widget
-from textual.reactive import Reactive
+from textual.reactive import reactive
 from textual.widgets import Input, Button, Label, Static, ContentSwitcher
 from textual.app import ComposeResult, RenderResult
 from textual.content import Content
 from textual.style import Style
 from telethon import TelegramClient, events, utils, types
-import datetime
-from os import getenv
 
 class Chat(Widget):
     """Класс виджета чата для панели чатов"""
 
-    username: Reactive[str] = Reactive(" ", recompose=True)
-    peername: Reactive[str] = Reactive(" ", recompose=True)
-    msg: Reactive[str] = Reactive(" ", recompose=True)
-    is_group: Reactive[bool] = Reactive(False, recompose=True)
-    is_channel: Reactive[bool] = Reactive(False, recompose=True)
-    peer_id: Reactive[int] = Reactive(0)
+    username: reactive[str] = reactive(" ", recompose=True)
+    peername: reactive[str] = reactive(" ", recompose=True)
+    msg: reactive[str] = reactive(" ", recompose=True)
+    is_group: reactive[bool] = reactive(False, recompose=True)
+    is_channel: reactive[bool] = reactive(False)
+    peer_id: reactive[int] = reactive(0)
 
     def __init__(
             self, 
@@ -38,6 +36,11 @@ class Chat(Widget):
     def on_mount(self) -> None:
         self.switcher = self.screen.query_one(Horizontal)\
             .query_one("#dialog_switcher", ContentSwitcher)
+        
+        if int(self.id[5:]) % 2 != 0:
+            self.add_class("odd")
+        else:
+            self.add_class("even")
     
     def on_click(self) -> None:
         # Получение ID диалога и создание DOM-ID на его основе
@@ -60,7 +63,7 @@ class Chat(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Label(f"┌───┐\n│ {self.peername[:1]:1} │\n└───┘")
+            yield Label(self.peername[:1], classes="avatar")
             with Vertical():
                 yield Label(self.peername, id="peername", markup=False)
                 if self.is_group:
@@ -87,24 +90,18 @@ class Dialog(Widget):
         self.is_channel = is_channel
 
     async def on_mount(self) -> None:
-        self.limit = 10
+        self.limit = int(self.app.MESSAGES_LIMIT)
 
         if not self.is_channel:
             self.msg_input = self.query_one("#msg_input")
         self.dialog = self.query_one(Vertical).query_one("#dialog")
+        self.top_bar = self.query_one(Vertical).query_one(TopBar)
+        self.switcher = self.screen.query_one(Horizontal)\
+            .query_one("#dialog_switcher", ContentSwitcher)
 
         self.me = await self.telegram_client.get_me()
 
         await self.update_dialog()
-
-        for event in (
-            events.NewMessage, 
-            events.MessageDeleted, 
-            events.MessageEdited
-        ):
-            self.telegram_client.on(
-                event(chats=(self.chat_id))
-            )(self.update_dialog)
 
         #self.dialog.scroll_down(animate=False, immediate=True)
 
@@ -126,7 +123,7 @@ class Dialog(Widget):
     async def update_dialog(self, event = None) -> None:
         print("Запрос обновления сообщений")
 
-        if not self.is_msg_update_blocked:
+        if not self.is_msg_update_blocked and self.switcher.current == self.id:
             self.is_msg_update_blocked = True
 
             messages = await self.telegram_client.get_messages(
@@ -186,10 +183,14 @@ class Dialog(Widget):
                 
                 msg.is_me = is_me
                 msg.username = utils.get_display_name(messages[i].sender)
-                msg.send_time = messages[i]\
+                msg.info = messages[i]\
                     .date\
                     .astimezone(self.timezone)\
                     .strftime("%H:%M")
+                
+            self.top_bar.peername = utils.get_display_name(
+                await self.telegram_client.get_entity(self.chat_id)
+            )
 
             self.is_msg_update_blocked = False
             print("Сообщения обновлены")
@@ -198,6 +199,7 @@ class Dialog(Widget):
 
     def compose(self) -> ComposeResult:
         with Vertical():
+            yield TopBar()
             yield VerticalScroll(id="dialog")
             if not self.is_channel:
                 with Horizontal(id="input_place"):
@@ -227,27 +229,18 @@ class Dialog(Widget):
 class Message(Widget):
     """Класс виджета сообщений для окна диалога"""
 
-    message: Reactive[Content] = Reactive("", recompose=True)
-    is_me: Reactive[bool] = Reactive(False, recompose=True)
-    username: Reactive[str] = Reactive("", recompose=True)
-    send_time: Reactive[str] = Reactive("", recompose=True)
+    message: reactive[Content] = reactive("", recompose=True)
+    is_me: reactive[bool] = reactive(False, recompose=True)
+    username: reactive[str] = reactive("", recompose=True)
+    info: reactive[str] = reactive("", recompose=True)
     
-    def __init__(
-            self, 
-            name=None, 
-            id=None, 
-            classes=None, 
-            disabled=False
-    ) -> None:
-        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
-
-    def on_mount(self) -> None:
-        pass
+    def __init__(self, id=None) -> None:
+        super().__init__(id=id)
 
     def compose(self) -> ComposeResult:
         label = Label(self.message, markup=False)
         label.border_title = self.username * (not self.is_me)
-        label.border_subtitle = self.send_time
+        label.border_subtitle = self.info
         
         with Container():
             yield label
@@ -256,3 +249,13 @@ class Message(Widget):
             self.classes = "is_me_true"
         else:
             self.classes = "is_me_false"
+
+class TopBar(Widget):
+    """Класс виджета верхней панели для окна диалога"""
+
+    peername: reactive[str] = reactive(" ", recompose=True)
+
+    def compose(self) -> ComposeResult:
+        with Horizontal():
+            yield Label(self.peername[:1], classes="avatar")
+            yield Label(self.peername, classes="peername_top_bar")

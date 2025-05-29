@@ -10,12 +10,12 @@ from src.screens import AuthScreen, ChatScreen
 import src.locales
 
 load_dotenv()
-API_ID = getenv("API_ID")
-API_HASH = getenv("API_HASH")
-LANGUAGE = getenv("LANGUAGE")
-UTC_OFFSET = getenv("UTC_OFFSET")
+env_consts = ["API_ID", "API_HASH", "LANGUAGE", "UTC_OFFSET", "CHATS_LIMIT",
+              "MESSAGES_LIMIT"]
+for name in env_consts:
+    exec(f"{name} = getenv(\"{name}\")")
 
-if "" in [API_ID, API_HASH, LANGUAGE, UTC_OFFSET]:
+if "" in list(map(lambda x: globals()[x], env_consts)):
     raise ValueError(
         "Недостаточно параметров в .env файле."
         "Скопируйте .env.example в .env и заполните свои API-ключи."
@@ -23,9 +23,10 @@ if "" in [API_ID, API_HASH, LANGUAGE, UTC_OFFSET]:
         "Copy .env.example into .env and fill your API-keys."
     )
 
-API_ID = int(API_ID)
+API_ID = int(API_ID) # type: ignore
 locale = dict(zip(
-    getattr(src.locales, "codes"), getattr(src.locales, LANGUAGE)
+    getattr(src.locales, "codes"), 
+    getattr(src.locales, LANGUAGE) # type: ignore
 ))
 
 class Talc(App):
@@ -50,13 +51,15 @@ class Talc(App):
     ):
         super().__init__(driver_class, css_path, watch_css, ansi_color)
         self.locale = locale
-        self.timezone = timezone(timedelta(hours=int(UTC_OFFSET)))
+        self.timezone = timezone(timedelta(hours=int(UTC_OFFSET))) # type: ignore
+        self.CHATS_LIMIT = CHATS_LIMIT # type: ignore
+        self.MESSAGES_LIMIT = MESSAGES_LIMIT # type: ignore
 
     async def on_mount(self) -> None:
         self.telegram_client = TelegramClient(
             getenv("CURRENT_USER"), 
             API_ID, 
-            API_HASH
+            API_HASH # type: ignore
         )
         await self.telegram_client.connect()
 
