@@ -2,6 +2,8 @@
 
 Тальк — клиент Telegram с текстовым пользовательским интерфейсом, написанный на Python, Telethon и Textual.
 
+Будьте добры, по-русски | [In English, please](readme/README-en.md)
+
 ## Требования
 
 - Python 3.12
