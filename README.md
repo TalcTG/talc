@@ -1,4 +1,4 @@
-# Telegram-TUI
+# Talc
 
 
 > [!WARNING]
