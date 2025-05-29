@@ -4,6 +4,8 @@
 
 Будьте добры, по-русски | [In English, please](readme/README-en.md)
 
+![Окно приложения](https://github.com/user-attachments/assets/b2cecda6-b9c0-44d5-ae6d-894e73f0ca47)
+
 ## Требования
 
 - Python 3.12
