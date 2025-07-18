@@ -38,7 +38,7 @@ class Talc(App):
         (Keys.ControlF, "notify(\"Нажата кнопка папок\")", locale["folders"]),
         (Keys.Tab, "notify(\"Нажат таб\")", locale["switch_focus"]),
         (Keys.Enter, "notify(\"Нажат энтер\")", locale["enter"]),
-        (Keys.Escape, "notify(\"Нажат эскейп\")", locale["back"]),
+        (Keys.Escape, "show_start_screen()", locale["back"]),
         (_character_to_key("/"), "notify(\"Нажат слэш\")", locale["search"])
     ]
 
@@ -51,9 +51,11 @@ class Talc(App):
     ):
         super().__init__(driver_class, css_path, watch_css, ansi_color)
         self.locale = locale
+        self.title = self.locale["talc"]
         self.timezone = timezone(timedelta(hours=int(UTC_OFFSET))) # type: ignore
         self.CHATS_LIMIT = CHATS_LIMIT # type: ignore
         self.MESSAGES_LIMIT = MESSAGES_LIMIT # type: ignore
+        self.msg_buffer = None
 
     async def on_mount(self) -> None:
         self.telegram_client = TelegramClient(
@@ -63,8 +65,8 @@ class Talc(App):
         )
         await self.telegram_client.connect()
 
-        chat_screen = ChatScreen(telegram_client=self.telegram_client)
-        self.install_screen(chat_screen, name="chats")
+        self.chat_screen = ChatScreen(telegram_client=self.telegram_client)
+        self.install_screen(self.chat_screen, name="chats")
 
         if not await self.telegram_client.is_user_authorized():
             auth_screen = AuthScreen(telegram_client=self.telegram_client)
@@ -74,6 +76,9 @@ class Talc(App):
             self.push_screen("chats")
 
         self.scroll_sensitivity_y = 1.0
+
+    def show_start_screen(self) -> None:
+        self.chat_screen.switcher.current = "start_label"
 
     async def on_exit_app(self):
         await self.telegram_client.disconnect()

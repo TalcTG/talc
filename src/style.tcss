@@ -74,12 +74,13 @@ ContentSwitcher {
     height: 100%;
 }
 
-#start_converse_label {
-    width: 100%;
+#start_label {
+    width: 70%;
     height: 100%;
     text-align: center;
     content-align: center middle;
     color: $panel;
+    padding: 3;
 }
 
 TopBar {
